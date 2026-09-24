@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { heroSlides, products } from "../data/products";
+import { heroSlides } from "../data/products";
 import { money } from "../lib/format";
 import { starIcons } from "../lib/icons";
+import { useProductCatalog } from "../products/ProductProvider";
 
 export function ShopScreen({ onProduct }: { onProduct: (id: string) => void }) {
+  const { products } = useProductCatalog();
   const [slide, setSlide] = useState(0);
 
   useEffect(() => {

@@ -11,10 +11,19 @@ export interface CheckoutCustomer {
   address: string;
 }
 
+export interface CheckoutItem {
+  product_id: string;
+  name: string;
+  tag?: string;
+  qty: number;
+  price: number;
+}
+
 interface PayPalCheckoutButtonProps extends CheckoutCustomer {
   /** Cart total in the given currency. */
   amount: number;
   currency?: string;
+  items?: CheckoutItem[];
   /** When set, Order was already created (and stored in Supabase) — reuse it. */
   paypalOrderId?: string;
   onSuccess?: () => void;
@@ -26,7 +35,19 @@ async function saveOrderViaFeedback(
   customer: CheckoutCustomer,
   amount: number,
   currency: string,
+  items: CheckoutItem[] = [],
 ): Promise<string> {
+  const itemLines = items.length
+    ? [
+        "Items:",
+        ...items.map(
+          (item) =>
+            `- ${item.name}${item.tag ? ` (${item.tag})` : ""} ×${item.qty}` +
+            (Number.isFinite(item.price) ? ` @ ${item.price}` : ""),
+        ),
+      ]
+    : ["Items: (none)"];
+
   const content = [
     "ORDER LEAD (auto-saved because /orders insert failed)",
     `Name: ${customer.name}`,
@@ -34,6 +55,7 @@ async function saveOrderViaFeedback(
     `Phone: ${customer.phone}`,
     `Address: ${customer.address}`,
     `Amount: ${amount.toFixed(2)} ${currency}`,
+    ...itemLines,
   ].join("\n");
 
   const result = await apiPost<{
@@ -54,6 +76,7 @@ export async function saveManualOrder(
   customer: CheckoutCustomer,
   amount: number,
   currency = "USD",
+  items: CheckoutItem[] = [],
 ): Promise<{ orderId: string; via: "orders" | "feedbacks" }> {
   await wakeApi();
 
@@ -67,6 +90,7 @@ export async function saveManualOrder(
         address: customer.address,
         amount,
         currency,
+        items,
       },
     );
 
@@ -84,7 +108,12 @@ export async function saveManualOrder(
       "orders insert failed — falling back to feedbacks table",
       error,
     );
-    const orderId = await saveOrderViaFeedback(customer, amount, currency);
+    const orderId = await saveOrderViaFeedback(
+      customer,
+      amount,
+      currency,
+      items,
+    );
     return { orderId, via: "feedbacks" };
   }
 }
@@ -93,9 +122,10 @@ export async function createCheckoutOrder(
   customer: CheckoutCustomer,
   amount: number,
   currency = "USD",
+  items: CheckoutItem[] = [],
 ): Promise<{ orderId: string; via: "orders" | "feedbacks" }> {
   if (SKIP_PAYPAL_CHECKOUT) {
-    return saveManualOrder(customer, amount, currency);
+    return saveManualOrder(customer, amount, currency, items);
   }
 
   await wakeApi();
@@ -109,6 +139,7 @@ export async function createCheckoutOrder(
       address: customer.address,
       amount,
       currency,
+      items,
     },
   );
 

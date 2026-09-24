@@ -1,3 +1,6 @@
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import express from "express";
 import { isPlaceholder, settings } from "./config.js";
@@ -12,13 +15,62 @@ import { hashPassword, verifyPassword } from "./password.js";
 import {
   claimEmailSend,
   ensureAdminUser,
+  ensureSiteProducts,
   findUserByLogin,
+  getSiteProduct,
   insertFeedback,
   insertOrder,
   listOrders,
+  deleteOrders,
+  listSiteProducts,
   markOrderStatus,
   updateOrderContact,
+  updateOrderItems,
+  upsertSiteProduct,
 } from "./supabase.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function loadDefaultProducts() {
+  try {
+    const raw = readFileSync(
+      path.join(__dirname, "data", "site_products.defaults.json"),
+      "utf8",
+    );
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("[PRODUCTS] could not load defaults:", error.message || error);
+    return [];
+  }
+}
+
+const DEFAULT_PRODUCTS = loadDefaultProducts();
+
+function mergeProductCatalog(dbRows, defaults) {
+  const byId = new Map();
+  for (const product of defaults || []) {
+    if (product?.id) byId.set(product.id, { ...product });
+  }
+  for (const row of dbRows || []) {
+    if (!row?.id) continue;
+    const prev = byId.get(row.id) || {};
+    byId.set(row.id, {
+      ...prev,
+      ...row,
+      id: row.id,
+      content: {
+        ...(prev.content || {}),
+        ...(row.content || {}),
+        gallery:
+          Array.isArray(row.content?.gallery) && row.content.gallery.length
+            ? row.content.gallery
+            : prev.content?.gallery || [],
+      },
+    });
+  }
+  return [...byId.values()].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
 
 const app = express();
 app.use(cors());
@@ -69,6 +121,28 @@ function parseAmount(value) {
 
 function trimOrEmpty(value) {
   return String(value ?? "").trim();
+}
+
+function normalizeOrderItems(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const productId = trimOrEmpty(item?.product_id || item?.productId);
+      const name = trimOrEmpty(item?.name) || productId || "Product";
+      const tag = trimOrEmpty(item?.tag);
+      const qty = Math.max(1, Math.min(99, Number(item?.qty) || 1));
+      const price = Number(item?.price);
+      if (!productId && !name) return null;
+      return {
+        product_id: productId || name,
+        name,
+        tag: tag || null,
+        qty,
+        price: Number.isFinite(price) ? Math.round(price * 100) / 100 : null,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 50);
 }
 
 async function completeOrderAndQueueEmail(paypalOrderId, source) {
@@ -173,6 +247,8 @@ app.post("/api/orders/manual", async (req, res) => {
       return error(res, 400, "currency must be a 3-letter ISO-4217 code.");
     }
 
+    const items = normalizeOrderItems(req.body?.items);
+
     let orderId = `manual-${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
     try {
@@ -182,10 +258,29 @@ app.post("/api/orders/manual", async (req, res) => {
         total_amount: amount,
         currency,
         status: "PENDING",
+        ...(items.length ? { items } : {}),
       });
+      if (items.length) {
+        const patched = await updateOrderItems(orderId, items);
+        if (!patched) {
+          console.warn(
+            `[ORDERS] items not confirmed on ${orderId} — check docs/ORDERS_ITEMS.sql`,
+          );
+        }
+      }
     } catch (orderError) {
       console.error(`[ORDERS] core insert failed for ${orderId}:`, orderError.message);
       try {
+        const itemLines = items.length
+          ? [
+              "Items:",
+              ...items.map(
+                (item) =>
+                  `- ${item.name}${item.tag ? ` (${item.tag})` : ""} ×${item.qty}` +
+                  (item.price != null ? ` @ ${item.price}` : ""),
+              ),
+            ]
+          : ["Items: (none)"];
         const feedbackId = await insertFeedback({
           topic: `Order · ${amount.toFixed(2)} ${currency}`,
           content: [
@@ -195,6 +290,7 @@ app.post("/api/orders/manual", async (req, res) => {
             `Phone: ${customerPhone}`,
             `Address: ${customerAddress}`,
             `Amount: ${amount.toFixed(2)} ${currency}`,
+            ...itemLines,
             `Orders insert error: ${orderError.message}`,
           ].join("\n"),
         });
@@ -224,7 +320,9 @@ app.post("/api/orders/manual", async (req, res) => {
       );
     }
 
-    console.log(`[ORDERS] MANUAL order ${orderId} stored for ${customerEmail}`);
+    console.log(
+      `[ORDERS] MANUAL order ${orderId} stored for ${customerEmail} (${items.length} item lines)`,
+    );
     return res.status(201).json({
       status: "success",
       message: "Order saved.",
@@ -256,6 +354,7 @@ app.post("/api/orders/paypal/create", async (req, res) => {
 
     console.log(`Initiating PayPal checkout: ${amount.toFixed(2)} ${currency}`);
     const order = await createPaypalOrder(amount, currency);
+    const items = normalizeOrderItems(req.body?.items);
 
     if (email) {
       try {
@@ -268,8 +367,14 @@ app.post("/api/orders/paypal/create", async (req, res) => {
           total_amount: amount,
           currency,
           status: "PENDING",
+          ...(items.length ? { items } : {}),
         });
-        console.log(`[ORDERS] PENDING order ${order.id} stored for ${email}`);
+        if (items.length) {
+          await updateOrderItems(order.id, items);
+        }
+        console.log(
+          `[ORDERS] PENDING order ${order.id} stored for ${email} (${items.length} item lines)`,
+        );
       } catch (error) {
         console.error(`[ORDERS] failed to store PENDING order ${order.id}:`, error.message);
       }
@@ -436,6 +541,116 @@ app.get("/api/admin/orders", requireAdmin, async (_req, res) => {
   }
 });
 
+app.post("/api/admin/orders/delete", requireAdmin, async (req, res) => {
+  try {
+    const raw = req.body?.order_ids ?? req.body?.ids ?? [];
+    const orderIds = Array.isArray(raw)
+      ? [...new Set(raw.map((id) => trimOrEmpty(id)).filter(Boolean))]
+      : [];
+    if (!orderIds.length) {
+      return error(res, 400, "Select at least one order to delete.");
+    }
+    if (orderIds.length > 100) {
+      return error(res, 400, "You can delete at most 100 orders at once.");
+    }
+
+    const deleted = await deleteOrders(orderIds);
+    console.log(`[ADMIN] deleted ${deleted} order(s)`);
+    return res.json({ status: "success", deleted, order_ids: orderIds });
+  } catch (err) {
+    console.error("[ADMIN] delete orders failed:", err.message || err);
+    return error(res, 500, "Unable to delete orders right now.");
+  }
+});
+
+app.get("/api/products", async (_req, res) => {
+  try {
+    const rows = await listSiteProducts();
+    return res.json(mergeProductCatalog(rows, DEFAULT_PRODUCTS));
+  } catch (err) {
+    console.warn("[PRODUCTS] list failed, serving defaults:", err.message || err);
+    return res.json(DEFAULT_PRODUCTS);
+  }
+});
+
+app.get("/api/products/:id", async (req, res) => {
+  const id = trimOrEmpty(req.params.id);
+  if (!id) return error(res, 400, "Product id is required.");
+  try {
+    const row = await getSiteProduct(id);
+    if (row) return res.json(row);
+  } catch (err) {
+    console.warn("[PRODUCTS] get failed:", err.message || err);
+  }
+  const fallback = DEFAULT_PRODUCTS.find((p) => p.id === id);
+  if (fallback) return res.json(fallback);
+  return error(res, 404, "Product not found.");
+});
+
+app.put("/api/admin/products/:id", requireAdmin, async (req, res) => {
+  const id = trimOrEmpty(req.params.id);
+  if (!id) return error(res, 400, "Product id is required.");
+
+  const patch = req.body && typeof req.body === "object" ? req.body : null;
+  if (!patch) return error(res, 400, "Product body is required.");
+
+  try {
+    let current = null;
+    try {
+      current = await getSiteProduct(id);
+    } catch {
+      current = null;
+    }
+    const baseline =
+      current || DEFAULT_PRODUCTS.find((p) => p.id === id) || { id };
+
+    const next = {
+      ...baseline,
+      ...patch,
+      id,
+      content: {
+        ...(baseline.content || {}),
+        ...(patch.content || {}),
+      },
+    };
+
+    if (Array.isArray(patch.content?.gallery)) {
+      next.content.gallery = patch.content.gallery;
+    }
+    if (Array.isArray(patch.compareParas)) {
+      next.compareParas = patch.compareParas;
+    }
+
+    const price = Number(next.price);
+    const twoBoxPrice = Number(next.twoBoxPrice);
+    if (!(price > 0 && price <= 9999.99)) {
+      return error(res, 400, "price must be greater than 0 and at most 9999.99.");
+    }
+    if (!(twoBoxPrice > 0 && twoBoxPrice <= 9999.99)) {
+      return error(
+        res,
+        400,
+        "twoBoxPrice must be greater than 0 and at most 9999.99.",
+      );
+    }
+    next.price = Math.round(price * 100) / 100;
+    next.twoBoxPrice = Math.round(twoBoxPrice * 100) / 100;
+    delete next.regularPrice;
+    delete next.twoBoxRegularPrice;
+    next.name = trimOrEmpty(next.name) || baseline.name || id;
+
+    const saved = await upsertSiteProduct(id, next);
+    return res.json({ status: "success", product: saved });
+  } catch (err) {
+    console.error("[ADMIN] save product failed:", err.message || err);
+    return error(
+      res,
+      500,
+      "Unable to save product. Run docs/SITE_PRODUCTS.sql if the table is missing.",
+    );
+  }
+});
+
 if (emailEnabled()) {
   console.log("Email: Resend API enabled");
 } else {
@@ -482,7 +697,23 @@ async function bootstrapAdminUser() {
   }
 }
 
+async function bootstrapSiteProducts() {
+  if (!DEFAULT_PRODUCTS.length) {
+    console.log("[PRODUCTS] no defaults file — skip seed");
+    return;
+  }
+  try {
+    const result = await ensureSiteProducts(DEFAULT_PRODUCTS);
+    console.log(
+      `[PRODUCTS] site_products ready (seeded ${result.created}, total ~${result.total})`,
+    );
+  } catch (err) {
+    console.warn("[PRODUCTS]", err.message || err);
+  }
+}
+
 await bootstrapAdminUser();
+await bootstrapSiteProducts();
 
 app.listen(settings.port, settings.host, () => {
   console.log(`Starting Express server on ${settings.host}:${settings.port}`);

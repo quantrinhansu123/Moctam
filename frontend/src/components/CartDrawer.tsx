@@ -85,10 +85,21 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
 
     setIsOrdering(true);
     try {
+      const checkoutItems = lines.map((line) => ({
+        product_id: line.productId,
+        name: line.name,
+        tag: line.tag,
+        qty: line.qty,
+        price: line.price,
+      }));
+      if (!checkoutItems.length) {
+        throw new Error("Cart is empty — add a product before ordering.");
+      }
       const saved = await createCheckoutOrder(
         { email, name, phone, address },
         Number(subtotal.toFixed(2)),
         "USD",
+        checkoutItems,
       );
       setPaypalOrderId(saved.orderId);
       setOrderReady(true);

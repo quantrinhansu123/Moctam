@@ -36,3 +36,12 @@ JWT_SECRET=a_long_random_secret
 
 - `POST /api/admin/login` `{ "username", "password" }` → `{ token }`
 - `GET /api/admin/orders` with header `Authorization: Bearer <token>`
+- `GET /api/products` (public catalog)
+- `PUT /api/admin/products/:id` (admin JWT) — name, price, images, copy
+
+## Content CMS (ảnh / giá / nội dung)
+
+1. Run [`SITE_PRODUCTS.sql`](./SITE_PRODUCTS.sql) in Supabase.
+2. Redeploy backend (seeds `tra-moc-tam` / `mam-xoi` if empty).
+3. Open `/#/admin` → tab **Nội dung**.
+4. Redeploy frontend once so the storefront loads catalog from API ([moctam.vercel.app](https://moctam.vercel.app/)).

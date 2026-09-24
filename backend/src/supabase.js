@@ -59,34 +59,93 @@ export async function insertOrder(row) {
     if (payload[key] == null) delete payload[key];
   }
   delete payload.user_id;
+  if (payload.items == null) delete payload.items;
 
-  try {
-    await supabaseFetch("/rest/v1/orders", {
+  const post = (body) =>
+    supabaseFetch("/rest/v1/orders", {
       method: "POST",
       headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
-  } catch (error) {
-    const message = String(error.message || error);
-    const missingContact =
-      /customer_name|customer_phone|customer_address|pgrst204|could not find/i.test(
+
+  const isItemsColumnError = (message) =>
+    /\bitems\b/i.test(message) &&
+    /pgrst204|could not find|schema cache|does not exist|unknown/i.test(message);
+
+  const isContactColumnError = (message) =>
+    /customer_name|customer_phone|customer_address/i.test(message) &&
+    /pgrst204|could not find|schema cache|does not exist|unknown/i.test(message);
+
+  try {
+    await post(payload);
+    return;
+  } catch (firstError) {
+    const message = String(firstError.message || firstError);
+    let next = { ...payload };
+
+    // Only drop items when the error is specifically about the items column.
+    if (payload.items != null && isItemsColumnError(message)) {
+      console.warn(
+        "[ORDERS] items column missing — retrying without items. Run docs/ORDERS_ITEMS.sql",
         message,
       );
-    if (!missingContact) throw error;
+      delete next.items;
+      try {
+        await post(next);
+        return;
+      } catch (secondError) {
+        const secondMessage = String(secondError.message || secondError);
+        if (!isContactColumnError(secondMessage)) {
+          throw secondError;
+        }
+        console.warn(
+          "[ORDERS] contact columns missing — retrying without name/phone/address:",
+          secondMessage,
+        );
+        delete next.customer_name;
+        delete next.customer_phone;
+        delete next.customer_address;
+        await post(next);
+        return;
+      }
+    }
+
+    if (!isContactColumnError(message)) {
+      throw firstError;
+    }
 
     console.warn(
       "[ORDERS] contact columns missing — retrying without name/phone/address:",
       message,
     );
-    const fallback = { ...payload };
-    delete fallback.customer_name;
-    delete fallback.customer_phone;
-    delete fallback.customer_address;
-    await supabaseFetch("/rest/v1/orders", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(fallback),
-    });
+    delete next.customer_name;
+    delete next.customer_phone;
+    delete next.customer_address;
+    await post(next);
+  }
+}
+
+export async function updateOrderItems(paypalOrderId, items) {
+  if (!paypalOrderId || !Array.isArray(items) || !items.length) return 0;
+  try {
+    const rows = await supabaseFetch(
+      `/rest/v1/orders?paypal_order_id=eq.${encodeURIComponent(paypalOrderId)}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({
+          items,
+          updated_at: new Date().toISOString(),
+        }),
+      },
+    );
+    return Array.isArray(rows) ? rows.length : 0;
+  } catch (error) {
+    console.warn(
+      "[ORDERS] could not patch items (run docs/ORDERS_ITEMS.sql):",
+      error.message || error,
+    );
+    return 0;
   }
 }
 
@@ -140,11 +199,41 @@ export async function claimEmailSend(paypalOrderId) {
 
 export async function listOrders(limit = 100) {
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 200);
-  const columns =
+  const base =
     "paypal_order_id,customer_email,customer_name,customer_phone,customer_address,total_amount,currency,status,email_sent,created_at";
-  return supabaseFetch(
-    `/rest/v1/orders?select=${columns}&order=created_at.desc&limit=${safeLimit}`,
+  try {
+    return await supabaseFetch(
+      `/rest/v1/orders?select=${base},items&order=created_at.desc&limit=${safeLimit}`,
+    );
+  } catch (error) {
+    console.warn(
+      "[ORDERS] list without items (run docs/ORDERS_ITEMS.sql):",
+      error.message || error,
+    );
+    return supabaseFetch(
+      `/rest/v1/orders?select=${base}&order=created_at.desc&limit=${safeLimit}`,
+    );
+  }
+}
+
+/** Delete orders by paypal_order_id. Returns number of deleted rows. */
+export async function deleteOrders(orderIds = []) {
+  const ids = [...new Set((orderIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return 0;
+
+  // PostgREST: in.("a","b") — quote values that may contain special chars.
+  const filter = ids
+    .map((id) => `"${id.replace(/"/g, '\\"')}"`)
+    .join(",");
+
+  const rows = await supabaseFetch(
+    `/rest/v1/orders?paypal_order_id=in.(${filter})`,
+    {
+      method: "DELETE",
+      headers: { Prefer: "return=representation" },
+    },
   );
+  return Array.isArray(rows) ? rows.length : ids.length;
 }
 
 const USER_COLUMNS = "id,username,email,password_hash,role";
@@ -192,21 +281,32 @@ export async function ensureAdminUser({ username, password, hashPassword }) {
   const existing = await findUserByLogin(username);
   if (existing) {
     const role = String(existing.role || "").toLowerCase();
-    if (role === "admin") return { created: false, user: existing };
-    // Promote existing row if same username but not Admin yet.
-    const rows = await supabaseFetch(
-      `/rest/v1/users?id=eq.${encodeURIComponent(existing.id)}`,
-      {
-        method: "PATCH",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          role: "Admin",
-          password_hash: existing.password_hash || hashPassword(password),
-          updated_at: new Date().toISOString(),
-        }),
-      },
-    );
-    return { created: false, promoted: true, user: Array.isArray(rows) ? rows[0] : existing };
+    const hash = String(existing.password_hash || "");
+    const needsHashFix = !hash.startsWith("scrypt$");
+    const needsPromote = role !== "admin";
+
+    if (needsHashFix || needsPromote) {
+      const rows = await supabaseFetch(
+        `/rest/v1/users?id=eq.${encodeURIComponent(existing.id)}`,
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({
+            role: "Admin",
+            password_hash: needsHashFix ? hashPassword(password) : existing.password_hash,
+            updated_at: new Date().toISOString(),
+          }),
+        },
+      );
+      return {
+        created: false,
+        promoted: needsPromote,
+        repaired: needsHashFix,
+        user: Array.isArray(rows) ? rows[0] : existing,
+      };
+    }
+
+    return { created: false, user: existing };
   }
 
   const user = await createUser({
@@ -216,4 +316,70 @@ export async function ensureAdminUser({ username, password, hashPassword }) {
     role: "Admin",
   });
   return { created: true, user };
+}
+
+export async function listSiteProducts() {
+  const rows = await supabaseFetch(
+    "/rest/v1/site_products?select=id,data,updated_at&order=id.asc",
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    ...(row.data && typeof row.data === "object" ? row.data : {}),
+    id: row.id,
+    updated_at: row.updated_at,
+  }));
+}
+
+export async function getSiteProduct(id) {
+  const rows = await supabaseFetch(
+    `/rest/v1/site_products?id=eq.${encodeURIComponent(id)}&select=id,data,updated_at&limit=1`,
+  );
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const row = rows[0];
+  return {
+    ...(row.data && typeof row.data === "object" ? row.data : {}),
+    id: row.id,
+    updated_at: row.updated_at,
+  };
+}
+
+export async function upsertSiteProduct(id, data) {
+  const payload = {
+    id,
+    data,
+    updated_at: new Date().toISOString(),
+  };
+  const rows = await supabaseFetch("/rest/v1/site_products", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify(payload),
+  });
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  return {
+    ...(row?.data && typeof row.data === "object" ? row.data : data),
+    id: row?.id || id,
+    updated_at: row?.updated_at,
+  };
+}
+
+export async function ensureSiteProducts(defaults = []) {
+  let existing = [];
+  try {
+    existing = await listSiteProducts();
+  } catch (error) {
+    throw new Error(
+      `site_products unavailable — run docs/SITE_PRODUCTS.sql (${error.message || error})`,
+    );
+  }
+
+  const have = new Set(existing.map((p) => p.id));
+  let created = 0;
+  for (const product of defaults) {
+    if (!product?.id || have.has(product.id)) continue;
+    await upsertSiteProduct(product.id, product);
+    created += 1;
+  }
+  return { created, total: have.size + created };
 }

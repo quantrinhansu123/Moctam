@@ -9,6 +9,7 @@ import { SiteHeader } from "./components/SiteHeader";
 import { findProduct } from "./data/products";
 import type { NavKey } from "./data/navigation";
 import { useReveal } from "./hooks/useReveal";
+import { useProductCatalog } from "./products/ProductProvider";
 import { AdminScreen } from "./screens/AdminScreen";
 import { ContactScreen } from "./screens/ContactScreen";
 import { HowItWorksScreen } from "./screens/HowItWorksScreen";
@@ -32,6 +33,7 @@ function isAdminHash(hash = window.location.hash) {
 }
 
 function App() {
+  const { findProduct: findCatalogProduct } = useProductCatalog();
   const [isAdmin, setIsAdmin] = useState(() => isAdminHash());
   const [route, setRoute] = useState<Route>({ page: "shop" });
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -40,7 +42,10 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false);
 
   const activeNav: NavKey | null = route.page === "product" ? null : route.page;
-  const product = route.page === "product" ? findProduct(route.productId) : undefined;
+  const product =
+    route.page === "product"
+      ? findCatalogProduct(route.productId) || findProduct(route.productId)
+      : undefined;
 
   useEffect(() => {
     const syncHash = () => setIsAdmin(isAdminHash());

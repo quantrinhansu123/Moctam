@@ -80,6 +80,21 @@ export async function apiGet<T>(
   }, timeoutMs);
 }
 
+/** PUT JSON to the backend and parse the JSON response. */
+export async function apiPut<T>(
+  path: string,
+  body: unknown,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  return apiRequest<T>(path, {
+    ...init,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...extraHeaders(init) },
+    body: JSON.stringify(body),
+  }, timeoutMs);
+}
+
 async function apiRequest<T>(
   path: string,
   init: RequestInit,

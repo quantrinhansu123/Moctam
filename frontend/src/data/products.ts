@@ -199,7 +199,7 @@ const traMocTam: Product = {
 /* Ported from template/du-an-tra/assets/js/main-mam-xoi.js (tra-mam-xoi product page). */
 const mamXoi: Product = {
   id: "mam-xoi",
-  name: "Four-Herb Raspberry Leaf Tea",
+  name: "Mầm Xôi Herbal Tea",
   price: 1,
   twoBoxPrice: 2,
   rating: 4.8,
