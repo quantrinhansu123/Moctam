@@ -251,14 +251,14 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 className="cart-continue-btn"
                 onClick={onClose}
               >
-                Tiếp tục mua
+                Continue shopping
               </button>
               <button
                 type="button"
                 className="checkout-order-btn"
                 onClick={() => setShowCheckout(true)}
               >
-                Đặt hàng
+                Place order
               </button>
             </div>
           ) : null}
@@ -270,7 +270,7 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 className="cart-back-btn"
                 onClick={() => setShowCheckout(false)}
               >
-                ← Quay lại giỏ hàng
+                ← Back to cart
               </button>
               <form className="checkout-form" onSubmit={handleOrder} noValidate>
                 <label htmlFor="checkout-name">Name</label>
@@ -338,7 +338,7 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 {!orderReady && (
                   <>
                     <p className="checkout-email-note">
-                      Điền thông tin rồi bấm Order để lưu đơn.
+                      Fill in your details, then press Order to save your order.
                     </p>
                     {orderError && (
                       <p className="checkout-email-error" role="alert">
