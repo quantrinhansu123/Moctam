@@ -46,6 +46,13 @@ export async function insertFeedback({ topic, content, user_id }) {
   return id;
 }
 
+export async function listFeedbacks(limit = 200) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
+  return supabaseFetch(
+    `/rest/v1/feedbacks?select=id,topic,content,created_at&order=created_at.desc&limit=${safeLimit}`,
+  );
+}
+
 export async function insertOrder(row) {
   const payload = { ...row };
   // Never send user_id for guest checkout — column may be NOT NULL + FK to users.

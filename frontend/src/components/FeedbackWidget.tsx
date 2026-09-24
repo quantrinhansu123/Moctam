@@ -18,11 +18,34 @@ interface FeedbackErrorResponse {
   message?: string;
 }
 
-export function FeedbackWidget() {
+interface FeedbackWidgetProps {
+  cartCount?: number;
+  onOpenCart?: () => void;
+}
+
+export function FeedbackWidget({
+  cartCount = 0,
+  onOpenCart,
+}: FeedbackWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <>
+    <div className="float-dock" aria-label="Quick actions">
+      {onOpenCart && (
+        <button
+          className="float-cart"
+          type="button"
+          onClick={onOpenCart}
+          aria-label={`Cart ${cartCount} items`}
+        >
+          <span
+            className="float-cart-icon"
+            aria-hidden="true"
+            dangerouslySetInnerHTML={{ __html: icon("cart") }}
+          />
+          <span className="float-cart-count">{cartCount}</span>
+        </button>
+      )}
       <button
         className="feedback-trigger"
         type="button"
@@ -37,7 +60,7 @@ export function FeedbackWidget() {
         Feedback
       </button>
       {isOpen && <FeedbackModal onClose={() => setIsOpen(false)} />}
-    </>
+    </div>
   );
 }
 

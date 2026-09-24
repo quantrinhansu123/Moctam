@@ -20,6 +20,7 @@ import {
   getSiteProduct,
   insertFeedback,
   insertOrder,
+  listFeedbacks,
   listOrders,
   deleteOrders,
   listSiteProducts,
@@ -538,6 +539,16 @@ app.get("/api/admin/orders", requireAdmin, async (_req, res) => {
   } catch (err) {
     console.error("[ADMIN] list orders failed:", err.message || err);
     return error(res, 500, "Unable to load orders right now.");
+  }
+});
+
+app.get("/api/admin/feedbacks", requireAdmin, async (_req, res) => {
+  try {
+    const feedbacks = await listFeedbacks(200);
+    return res.json(Array.isArray(feedbacks) ? feedbacks : []);
+  } catch (err) {
+    console.error("[ADMIN] list feedbacks failed:", err.message || err);
+    return error(res, 500, "Unable to load feedbacks right now.");
   }
 });
 

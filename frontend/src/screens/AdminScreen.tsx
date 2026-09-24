@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { apiGet, apiPost, wakeApi } from "../lib/api";
 import { AdminContentPanel } from "../components/admin/AdminContentPanel";
 import {
+  FeedbackCharts,
+  type AdminFeedbackRow,
+} from "../components/admin/FeedbackCharts";
+import {
   AdminDashboardChrome,
   OrderAnalyticsCharts,
   OrderOverviewCharts,
@@ -12,7 +16,7 @@ import {
 const TOKEN_KEY = "moc_tam_admin_token";
 
 type AdminOrder = AdminOrderRow;
-type AdminTab = "overview" | "charts" | "content";
+type AdminTab = "overview" | "charts" | "feedback" | "content";
 
 function money(amount: number, currency = "USD") {
   try {
@@ -61,6 +65,9 @@ export function AdminScreen() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [ordersError, setOrdersError] = useState("");
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+  const [feedbacks, setFeedbacks] = useState<AdminFeedbackRow[]>([]);
+  const [feedbacksError, setFeedbacksError] = useState("");
+  const [isLoadingFeedbacks, setIsLoadingFeedbacks] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [tab, setTab] = useState<AdminTab>("overview");
@@ -76,8 +83,33 @@ export function AdminScreen() {
     localStorage.removeItem(TOKEN_KEY);
     setToken("");
     setOrders([]);
+    setFeedbacks([]);
     setSelectedIds([]);
     setOrdersError("");
+    setFeedbacksError("");
+  };
+
+  const loadFeedbacks = async (authToken: string) => {
+    setIsLoadingFeedbacks(true);
+    setFeedbacksError("");
+    try {
+      await wakeApi();
+      const rows = await apiGet<AdminFeedbackRow[]>("/api/admin/feedbacks", {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      setFeedbacks(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to load feedbacks.";
+      if (/401|403|unauthorized|forbidden|invalid token/i.test(message)) {
+        logout();
+        setLoginError("Session expired. Please sign in again.");
+      } else {
+        setFeedbacksError(message);
+      }
+    } finally {
+      setIsLoadingFeedbacks(false);
+    }
   };
 
   const loadOrders = async (authToken: string) => {
@@ -117,6 +149,12 @@ export function AdminScreen() {
       void loadOrders(token);
     }
   }, [token]);
+
+  useEffect(() => {
+    if (token && tab === "feedback") {
+      void loadFeedbacks(token);
+    }
+  }, [token, tab]);
 
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
@@ -253,10 +291,20 @@ export function AdminScreen() {
           <button
             type="button"
             className="admin-secondary"
-            onClick={() => void loadOrders(token)}
-            disabled={isLoadingOrders}
+            onClick={() => {
+              if (tab === "feedback") {
+                void loadFeedbacks(token);
+              } else {
+                void loadOrders(token);
+              }
+            }}
+            disabled={
+              tab === "feedback" ? isLoadingFeedbacks : isLoadingOrders
+            }
           >
-            {isLoadingOrders ? "Refreshing…" : "Refresh"}
+            {(tab === "feedback" ? isLoadingFeedbacks : isLoadingOrders)
+              ? "Refreshing…"
+              : "Refresh"}
           </button>
           <button type="button" className="admin-secondary" onClick={logout}>
             Log out
@@ -271,9 +319,14 @@ export function AdminScreen() {
         showContentTab
       />
 
-      {ordersError && (
+      {ordersError && tab !== "feedback" && tab !== "content" && (
         <p className="admin-error" role="alert">
           {ordersError}
+        </p>
+      )}
+      {feedbacksError && tab === "feedback" && (
+        <p className="admin-error" role="alert">
+          {feedbacksError}
         </p>
       )}
 
@@ -373,6 +426,11 @@ export function AdminScreen() {
         </>
       ) : tab === "charts" ? (
         <OrderAnalyticsCharts orders={orders} />
+      ) : tab === "feedback" ? (
+        <FeedbackCharts
+          feedbacks={feedbacks}
+          isLoading={isLoadingFeedbacks}
+        />
       ) : (
         <AdminContentPanel
           token={token}

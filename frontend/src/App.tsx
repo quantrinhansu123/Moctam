@@ -171,7 +171,10 @@ function App() {
         onRemove={removeLine}
         onClear={() => setCart([])}
       />
-      <FeedbackWidget />
+      <FeedbackWidget
+        cartCount={cart.reduce((sum, item) => sum + item.qty, 0)}
+        onOpenCart={() => setCartOpen(true)}
+      />
     </>
   );
 }

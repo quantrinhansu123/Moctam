@@ -3,31 +3,125 @@
  * (linked in index.html). Only classes the template CSS does not cover.
  */
 
-/* ---- Floating feedback widget (styled to the template palette) ---- */
-.feedback-trigger {
+/* ---- Floating feedback + cart dock ---- */
+.float-dock {
   position: fixed;
-  right: 34px;
-  bottom: 28px;
-  height: 47px;
-  padding: 0 16px;
-  border: 1px solid #ddd;
-  border-radius: 7px;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  right: 28px;
+  bottom: 24px;
   z-index: 80;
-  letter-spacing: 0.02em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+}
+.float-cart {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border: 2px solid #1f5b35;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(31, 91, 53, 0.28);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  animation: float-attention 2.4s ease-in-out infinite;
+}
+.float-cart:hover {
+  transform: scale(1.06);
+  animation-play-state: paused;
+}
+.float-cart-icon {
+  display: grid;
+  place-items: center;
+  color: #0a0a0a;
+}
+.float-cart-icon svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+.float-cart-count {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #fff;
+  font: 800 12px/22px Poppins, sans-serif;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(31, 91, 53, 0.35);
+}
+.feedback-trigger {
+  height: 52px;
+  padding: 0 18px;
+  border: 2px solid #1f5b35;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff 0%, #f3faf5 100%);
+  box-shadow: 0 8px 22px rgba(31, 91, 53, 0.22);
+  letter-spacing: 0.03em;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-family: Poppins, sans-serif;
-  font-size: 14px;
-  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+  color: #132b1f;
   cursor: pointer;
+  animation: float-attention 2.8s ease-in-out infinite;
+  animation-delay: 0.35s;
+}
+.feedback-trigger:hover {
+  transform: scale(1.04);
+  animation-play-state: paused;
+}
+.feedback-trigger .chat-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: #1f5b35;
+}
+.feedback-trigger .chat-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke-width: 1.8;
+}
+@keyframes float-attention {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 8px 22px rgba(31, 91, 53, 0.22);
+  }
+  40% {
+    transform: translateY(-5px) scale(1.03);
+    box-shadow: 0 14px 28px rgba(31, 91, 53, 0.34);
+  }
+  55% {
+    transform: translateY(-2px) scale(1.01);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-cart,
+  .feedback-trigger {
+    animation: none;
+  }
 }
 @media (max-width: 749px) {
-  .feedback-trigger {
-    right: 15px;
-    bottom: 51px;
+  .float-dock {
+    right: 14px;
+    bottom: 46px;
+  }
+  .float-cart {
+    width: 58px;
+    height: 58px;
   }
 }
 
@@ -203,6 +297,27 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: 14px;
+  align-items: stretch;
+}
+.cart-actions .cart-continue-btn,
+.cart-actions .checkout-order-btn {
+  width: 100%;
+  height: 48px;
+  min-height: 48px;
+  margin-top: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gold);
+  color: #fff;
+  font: 700 13px/1.15 Poppins, sans-serif;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  cursor: pointer;
 }
 .cart-continue-btn,
 .cart-back-btn {
@@ -218,10 +333,6 @@
   width: 100%;
   margin-bottom: 12px;
   height: 40px;
-}
-.cart-actions .checkout-order-btn {
-  margin-top: 0;
-  width: 100%;
 }
 
 /* ---- Pre-checkout customer form (cart drawer) ---- */
@@ -757,6 +868,13 @@
   margin-top: 10px;
   overflow: visible;
   flex: 1;
+}
+.dash-empty {
+  margin: auto;
+  padding: 28px 12px;
+  text-align: center;
+  color: #677486;
+  font-size: 14px;
 }
 .dash-revenue-chart--large {
   height: 300px;

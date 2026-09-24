@@ -230,8 +230,8 @@ export function AdminDashboardChrome({
   rangeLabel,
   showContentTab,
 }: {
-  tab: "overview" | "charts" | "content";
-  onTabChange: (tab: "overview" | "charts" | "content") => void;
+  tab: "overview" | "charts" | "feedback" | "content";
+  onTabChange: (tab: "overview" | "charts" | "feedback" | "content") => void;
   rangeLabel: string;
   showContentTab?: boolean;
 }) {
@@ -257,6 +257,15 @@ export function AdminDashboardChrome({
         >
           <IconPie />
           Biểu đồ
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "feedback"}
+          className={`dash-tab${tab === "feedback" ? " is-active" : ""}`}
+          onClick={() => onTabChange("feedback")}
+        >
+          Feedback
         </button>
         {showContentTab && (
           <button
