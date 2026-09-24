@@ -52,6 +52,13 @@ pub struct CreateOrderResponse {
     pub approve_url: String,
 }
 
+#[derive(Serialize)]
+pub struct ManualOrderResponse {
+    pub status: &'static str,
+    pub message: &'static str,
+    pub order_id: String,
+}
+
 #[derive(Deserialize)]
 pub struct CaptureOrderRequest {
     pub paypal_order_id: String,
@@ -122,6 +129,52 @@ fn is_valid_phone(candidate: &str) -> bool {
             .all(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '(' | ')' | '-' | '.'))
 }
 
+/// Temporary order ids while PayPal Live is restricted (`manual-<nanos>`).
+fn new_manual_order_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("manual-{nanos}")
+}
+
+fn resolve_amount_and_currency(
+    amount: Option<&Value>,
+    currency: Option<&str>,
+    product_id: Option<&str>,
+) -> Result<(f64, String), HttpResponse> {
+    let amount = match parse_amount(amount) {
+        Some(value) if value.is_finite() && value > 0.0 && value <= 9_999.99 => value,
+        Some(_) => {
+            return Err(error_response(
+                actix_web::http::StatusCode::BAD_REQUEST,
+                "amount must be greater than 0 and at most 9999.99.",
+            ));
+        }
+        None if product_id.is_some() => 1.00,
+        None => {
+            return Err(error_response(
+                actix_web::http::StatusCode::BAD_REQUEST,
+                "amount is required.",
+            ));
+        }
+    };
+
+    let currency = currency
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("USD")
+        .to_ascii_uppercase();
+    if currency.len() != 3 {
+        return Err(error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "currency must be a 3-letter ISO-4217 code.",
+        ));
+    }
+
+    Ok((amount, currency))
+}
+
 /// Mark the order COMPLETED, then claim the single email send and spawn the
 /// thank-you delivery in the background. Shared by the capture endpoint and
 /// the webhook handler (idempotent from both sides).
@@ -176,6 +229,105 @@ async fn complete_order_and_queue_email(
 // =============================================================
 // ENDPOINTS
 // =============================================================
+
+/// Temporary checkout path: save contact + cart total to Supabase without PayPal.
+/// Use while the Live merchant account is restricted (`PAYEE_ACCOUNT_RESTRICTED`).
+#[post("/api/orders/manual")]
+pub async fn create_manual_order(
+    req: web::Json<CreateOrderRequest>,
+    supabase: web::Data<SupabaseClient>,
+) -> impl Responder {
+    let Some(customer_email) = optional_trimmed(req.email.as_deref()) else {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Email is required.",
+        );
+    };
+    if !is_valid_email(&customer_email) {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Please provide a valid email address.",
+        );
+    }
+
+    let Some(customer_name) = optional_trimmed(req.name.as_deref()) else {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Name is required.",
+        );
+    };
+    if !(2..=120).contains(&customer_name.chars().count()) {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "name must be between 2 and 120 characters.",
+        );
+    }
+
+    let Some(customer_phone) = optional_trimmed(req.phone.as_deref()) else {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Phone is required.",
+        );
+    };
+    if !is_valid_phone(&customer_phone) {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Please provide a valid phone number.",
+        );
+    }
+
+    let Some(customer_address) = optional_trimmed(req.address.as_deref()) else {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Address is required.",
+        );
+    };
+    if !(5..=500).contains(&customer_address.chars().count()) {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "address must be between 5 and 500 characters.",
+        );
+    }
+
+    let (amount, currency) = match resolve_amount_and_currency(
+        req.amount.as_ref(),
+        req.currency.as_deref(),
+        req.product_id.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+
+    let order_id = new_manual_order_id();
+    let row = OrderInsert {
+        paypal_order_id: order_id.clone(),
+        customer_email: customer_email.clone(),
+        customer_name: Some(customer_name),
+        customer_phone: Some(customer_phone),
+        customer_address: Some(customer_address),
+        total_amount: amount,
+        currency,
+        status: "PENDING".to_owned(),
+    };
+
+    match supabase.insert_order(&row).await {
+        Ok(()) => {
+            println!("[ORDERS] MANUAL order {order_id} stored for {customer_email}");
+            HttpResponse::Created().json(ManualOrderResponse {
+                status: "success",
+                message: "Order saved.",
+                order_id,
+            })
+        }
+        Err(error) => {
+            eprintln!("[ORDERS] failed to store MANUAL order {order_id}: {error}");
+            error_response(
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to save order right now.",
+            )
+        }
+    }
+}
 
 #[post("/api/orders/paypal/create")]
 pub async fn create_paypal_order(

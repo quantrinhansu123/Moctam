@@ -5,6 +5,7 @@ import type { CartLine } from "../types/product";
 import {
   createCheckoutOrder,
   PayPalCheckoutButton,
+  SKIP_PAYPAL_CHECKOUT,
 } from "./PayPalCheckoutButton";
 
 const CART_PAYMENTS: Array<[string, string]> = [
@@ -84,7 +85,6 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
 
     setIsOrdering(true);
     try {
-      // Creates the PayPal order AND inserts the row into Supabase immediately.
       const orderId = await createCheckoutOrder(
         { email, name, phone, address },
         Number(subtotal.toFixed(2)),
@@ -92,6 +92,14 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
       );
       setPaypalOrderId(orderId);
       setOrderReady(true);
+
+      // Temporary: PayPal Live is restricted — order data is already in Supabase.
+      if (SKIP_PAYPAL_CHECKOUT) {
+        alert("Order saved! We received your details.");
+        onClear();
+        resetCheckout();
+        onClose();
+      }
     } catch (error) {
       setOrderError(
         error instanceof Error
@@ -284,7 +292,7 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 )}
               </form>
 
-              {orderReady && formValid && paypalOrderId && (
+              {orderReady && formValid && paypalOrderId && !SKIP_PAYPAL_CHECKOUT && (
                 <>
                   <p className="checkout-email-note">
                     Order saved. Complete payment with PayPal below.

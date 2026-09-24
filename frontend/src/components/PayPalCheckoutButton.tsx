@@ -1,6 +1,9 @@
 import { PayPalButtons } from "@paypal/react-paypal-js";
 import { apiPost, wakeApi } from "../lib/api";
 
+/** Temporary: skip PayPal Live (account restricted) and only persist order data. */
+export const SKIP_PAYPAL_CHECKOUT = true;
+
 export interface CheckoutCustomer {
   email: string;
   name: string;
@@ -18,12 +21,43 @@ interface PayPalCheckoutButtonProps extends CheckoutCustomer {
   onError?: (err: unknown) => void;
 }
 
+/** Save contact + amount to Supabase without calling PayPal. */
+export async function saveManualOrder(
+  customer: CheckoutCustomer,
+  amount: number,
+  currency = "USD",
+): Promise<string> {
+  await wakeApi();
+
+  const orderData = await apiPost<{ order_id?: string; status?: string }>(
+    "/api/orders/manual",
+    {
+      email: customer.email,
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address,
+      amount,
+      currency,
+    },
+  );
+
+  if (orderData?.order_id) {
+    return orderData.order_id;
+  }
+  throw new Error(
+    orderData ? JSON.stringify(orderData) : "Missing order_id",
+  );
+}
+
 export async function createCheckoutOrder(
   customer: CheckoutCustomer,
   amount: number,
   currency = "USD",
 ): Promise<string> {
-  // Free-tier Render can sleep — wake it first so Order doesn't feel stuck.
+  if (SKIP_PAYPAL_CHECKOUT) {
+    return saveManualOrder(customer, amount, currency);
+  }
+
   await wakeApi();
 
   const orderData = await apiPost<{ paypal_order_id?: string }>(

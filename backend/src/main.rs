@@ -7,7 +7,9 @@ use backend::config::Settings;
 use backend::feedback::create_feedback;
 use backend::paypal_client::PayPalClient;
 use backend::services::email::EmailConfig;
-use backend::services::{capture_paypal_order, create_paypal_order, paypal_webhook};
+use backend::services::{
+    capture_paypal_order, create_manual_order, create_paypal_order, paypal_webhook,
+};
 use backend::supabase_client::SupabaseClient;
 
 // =============================================================
@@ -64,6 +66,7 @@ async fn main() -> Result<(), std::io::Error> {
             .app_data(settings_data.clone())
             // Register routes
             .service(check_root)
+            .service(create_manual_order)
             .service(create_paypal_order)
             .service(capture_paypal_order)
             .service(paypal_webhook)
