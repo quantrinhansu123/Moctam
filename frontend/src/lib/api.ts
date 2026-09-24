@@ -3,17 +3,20 @@
 // Reads VITE_API_URL from frontend/.env
 // =============================================================
 
+const PRODUCTION_API_URL = "https://moc-tam-2.onrender.com";
+const DEFAULT_TIMEOUT_MS = 60_000;
+
 const rawBaseUrl = import.meta.env.VITE_API_URL;
 
 if (!rawBaseUrl) {
   console.warn(
-    "VITE_API_URL is not set in frontend/.env — falling back to http://127.0.0.1:8080",
+    `VITE_API_URL is not set — falling back to ${PRODUCTION_API_URL}`,
   );
 }
 
 /** Base URL of the backend, without a trailing slash. */
 export const API_BASE_URL = (
-  rawBaseUrl || "http://127.0.0.1:8080"
+  rawBaseUrl || PRODUCTION_API_URL
 ).replace(/\/+$/, "");
 
 /** Build a full URL for a backend path, e.g. apiUrl("/api/feedback"). */
@@ -21,40 +24,79 @@ export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+function toUserFacingFetchError(error: unknown): Error {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return new Error(
+      "Request timed out. The server may be waking up — please try again in a moment.",
+    );
+  }
+  if (error instanceof TypeError) {
+    return new Error(
+      "Cannot reach the server. Please try again in a moment.",
+    );
+  }
+  if (error instanceof Error) return error;
+  return new Error("Request failed.");
+}
+
+/** Best-effort ping so Render free tier can wake before a real API call. */
+export async function wakeApi(timeoutMs = 20_000): Promise<void> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await fetch(apiUrl("/"), { method: "GET", signal: controller.signal });
+  } catch {
+    // Ignore — the real request will surface a clearer error.
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 /** POST JSON to the backend and parse the JSON response. */
 export async function apiPost<T>(
   path: string,
   body: unknown,
   init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...extraHeaders(init) },
-    body: JSON.stringify(body),
-    ...init,
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
-  const text = await response.text();
+  try {
+    const response = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...extraHeaders(init) },
+      body: JSON.stringify(body),
+      ...init,
+      signal: controller.signal,
+    });
 
-  // Tolerate non-JSON bodies (e.g. plain-text 500s) — never throw from parse.
-  let data: T | null = null;
-  if (text) {
-    try {
-      data = JSON.parse(text) as T;
-    } catch {
-      data = null;
+    const text = await response.text();
+
+    // Tolerate non-JSON bodies (e.g. plain-text 500s) — never throw from parse.
+    let data: T | null = null;
+    if (text) {
+      try {
+        data = JSON.parse(text) as T;
+      } catch {
+        data = null;
+      }
     }
-  }
 
-  if (!response.ok) {
-    const message =
-      (data as { message?: string } | null)?.message ??
-      text ??
-      `Request failed with status ${response.status}`;
-    throw new Error(message || `Request failed with status ${response.status}`);
-  }
+    if (!response.ok) {
+      const message =
+        (data as { message?: string } | null)?.message ??
+        text ??
+        `Request failed with status ${response.status}`;
+      throw new Error(message || `Request failed with status ${response.status}`);
+    }
 
-  return data as T;
+    return data as T;
+  } catch (error) {
+    throw toUserFacingFetchError(error);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function extraHeaders(init: RequestInit): Record<string, string> {

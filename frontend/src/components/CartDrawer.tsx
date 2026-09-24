@@ -276,7 +276,9 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                       className="checkout-order-btn"
                       disabled={isOrdering}
                     >
-                      {isOrdering ? "Saving order..." : "Order"}
+                      {isOrdering
+                        ? "Saving order… (server may take ~30s to wake)"
+                        : "Order"}
                     </button>
                   </>
                 )}

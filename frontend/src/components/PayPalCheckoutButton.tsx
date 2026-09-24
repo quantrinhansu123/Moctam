@@ -1,5 +1,5 @@
 import { PayPalButtons } from "@paypal/react-paypal-js";
-import { apiPost } from "../lib/api";
+import { apiPost, wakeApi } from "../lib/api";
 
 export interface CheckoutCustomer {
   email: string;
@@ -23,6 +23,9 @@ export async function createCheckoutOrder(
   amount: number,
   currency = "USD",
 ): Promise<string> {
+  // Free-tier Render can sleep — wake it first so Order doesn't feel stuck.
+  await wakeApi();
+
   const orderData = await apiPost<{ paypal_order_id?: string }>(
     "/api/orders/paypal/create",
     {
