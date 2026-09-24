@@ -310,7 +310,7 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                   type="tel"
                   inputMode="tel"
                   autoComplete="tel"
-                  placeholder="+84 ..."
+                  placeholder="+1 (555) 000-0000"
                   value={form.phone}
                   onChange={(event) => updateField("phone", event.target.value)}
                   aria-invalid={touched && !!errors.phone}
