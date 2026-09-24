@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { money } from "../lib/format";
 import { icon, payment } from "../lib/icons";
 import type { CartLine } from "../types/product";
@@ -45,13 +45,21 @@ interface CartDrawerProps {
 }
 
 export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: CartDrawerProps) {
-  const [showPayment, setShowPayment] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
   const [form, setForm] = useState<CheckoutForm>(EMPTY_FORM);
   const [touched, setTouched] = useState(false);
   const [orderReady, setOrderReady] = useState(false);
   const [paypalOrderId, setPaypalOrderId] = useState("");
   const [isOrdering, setIsOrdering] = useState(false);
   const [orderError, setOrderError] = useState("");
+
+  // Whenever the bag contents change (e.g. ADD TO CART), stay on cart view — not the form.
+  useEffect(() => {
+    setShowCheckout(false);
+    setOrderReady(false);
+    setPaypalOrderId("");
+    setOrderError("");
+  }, [lines]);
 
   const email = form.email.trim();
   const name = form.name.trim();
@@ -127,10 +135,18 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
   };
 
   const resetCheckout = () => {
-    setShowPayment(false);
+    setShowCheckout(false);
     setOrderReady(false);
     setTouched(false);
     setForm(EMPTY_FORM);
+    setPaypalOrderId("");
+    setOrderError("");
+  };
+
+  // Adding/changing cart lines returns to the bag view so you can keep shopping.
+  const bumpCart = () => {
+    setShowCheckout(false);
+    setOrderReady(false);
     setPaypalOrderId("");
     setOrderError("");
   };
@@ -177,7 +193,10 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                     <button
                       type="button"
                       aria-label={`Decrease quantity for ${line.name}`}
-                      onClick={() => onQty(line.key, -1)}
+                      onClick={() => {
+                        bumpCart();
+                        onQty(line.key, -1);
+                      }}
                       dangerouslySetInnerHTML={{ __html: icon("minus") }}
                     />
                     <input
@@ -188,7 +207,10 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                     <button
                       type="button"
                       aria-label={`Increase quantity for ${line.name}`}
-                      onClick={() => onQty(line.key, 1)}
+                      onClick={() => {
+                        bumpCart();
+                        onQty(line.key, 1);
+                      }}
                       dangerouslySetInnerHTML={{ __html: icon("plus") }}
                     />
                   </div>
@@ -196,7 +218,10 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                     className="remove-item"
                     type="button"
                     aria-label={`Remove ${line.name}`}
-                    onClick={() => onRemove(line.key)}
+                    onClick={() => {
+                      bumpCart();
+                      onRemove(line.key);
+                    }}
                     dangerouslySetInnerHTML={{ __html: icon("trash") }}
                   />
                   {line.regular > line.price && (
@@ -219,8 +244,34 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
             <strong>Subtotal</strong>
             <strong className="cart-subtotal">{money(subtotal)}</strong>
           </p>
-          {showPayment && lines.length > 0 ? (
+          {lines.length > 0 && !showCheckout ? (
+            <div className="cart-actions">
+              <button
+                type="button"
+                className="cart-continue-btn"
+                onClick={onClose}
+              >
+                Tiếp tục mua
+              </button>
+              <button
+                type="button"
+                className="checkout-order-btn"
+                onClick={() => setShowCheckout(true)}
+              >
+                Đặt hàng
+              </button>
+            </div>
+          ) : null}
+
+          {showCheckout && lines.length > 0 ? (
             <div className="cart-checkout">
+              <button
+                type="button"
+                className="cart-back-btn"
+                onClick={() => setShowCheckout(false)}
+              >
+                ← Quay lại giỏ hàng
+              </button>
               <form className="checkout-form" onSubmit={handleOrder} noValidate>
                 <label htmlFor="checkout-name">Name</label>
                 <input
@@ -287,7 +338,7 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 {!orderReady && (
                   <>
                     <p className="checkout-email-note">
-                      Fill in your details, then press Order — your order is saved right away.
+                      Điền thông tin rồi bấm Order để lưu đơn.
                     </p>
                     {orderError && (
                       <p className="checkout-email-error" role="alert">
@@ -335,15 +386,7 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 </>
               )}
             </div>
-          ) : (
-            <button
-              type="button"
-              disabled={lines.length === 0}
-              onClick={() => setShowPayment(true)}
-            >
-              Check out
-            </button>
-          )}
+          ) : null}
           <div className="cart-payments">
             {CART_PAYMENTS.map(([className, name]) => (
               <span

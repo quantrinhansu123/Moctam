@@ -198,6 +198,31 @@
 .cart-checkout {
   margin-top: 2px;
 }
+.cart-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+.cart-continue-btn,
+.cart-back-btn {
+  height: 44px;
+  border: 1px solid #d7dfd2;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: 700 13px/1 Poppins, sans-serif;
+  cursor: pointer;
+}
+.cart-back-btn {
+  width: 100%;
+  margin-bottom: 12px;
+  height: 40px;
+}
+.cart-actions .checkout-order-btn {
+  margin-top: 0;
+  width: 100%;
+}
 
 /* ---- Pre-checkout customer form (cart drawer) ---- */
 .checkout-form,
