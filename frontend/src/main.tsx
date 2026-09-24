@@ -14,9 +14,11 @@ if (!paypalClientId) {
 }
 
 const paypalOptions = {
-    "clientId": paypalClientId,
-    "currency": "USD",
-    "intent": "capture"
+    clientId: paypalClientId,
+    currency: "USD",
+    intent: "capture",
+    // Hide PayPal's "Debit or Credit Card" funding button — checkout uses our Order form instead.
+    disableFunding: "card",
 };
 
 createRoot(document.getElementById("root")!).render(

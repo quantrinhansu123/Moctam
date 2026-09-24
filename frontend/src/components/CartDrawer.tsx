@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { money } from "../lib/format";
 import { icon, payment } from "../lib/icons";
 import type { CartLine } from "../types/product";
-import { PayPalCheckoutButton } from "./PayPalCheckoutButton";
+import {
+  createCheckoutOrder,
+  PayPalCheckoutButton,
+} from "./PayPalCheckoutButton";
 
 const CART_PAYMENTS: Array<[string, string]> = [
   ["amex", "American Express"],
@@ -15,6 +18,21 @@ const CART_PAYMENTS: Array<[string, string]> = [
 ];
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_PATTERN = /^[+]?[\d\s().-]{8,20}$/;
+
+interface CheckoutForm {
+  email: string;
+  name: string;
+  phone: string;
+  address: string;
+}
+
+const EMPTY_FORM: CheckoutForm = {
+  email: "",
+  name: "",
+  phone: "",
+  address: "",
+};
 
 interface CartDrawerProps {
   open: boolean;
@@ -27,14 +45,72 @@ interface CartDrawerProps {
 
 export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: CartDrawerProps) {
   const [showPayment, setShowPayment] = useState(false);
-  const [checkoutEmail, setCheckoutEmail] = useState("");
+  const [form, setForm] = useState<CheckoutForm>(EMPTY_FORM);
+  const [touched, setTouched] = useState(false);
+  const [orderReady, setOrderReady] = useState(false);
+  const [paypalOrderId, setPaypalOrderId] = useState("");
+  const [isOrdering, setIsOrdering] = useState(false);
+  const [orderError, setOrderError] = useState("");
 
-  const emailValid = EMAIL_PATTERN.test(checkoutEmail.trim());
-  const emailTouched = checkoutEmail.length > 0;
+  const email = form.email.trim();
+  const name = form.name.trim();
+  const phone = form.phone.trim();
+  const address = form.address.trim();
+
+  const errors = {
+    email: !EMAIL_PATTERN.test(email) ? "Please enter a valid email." : "",
+    name: name.length < 2 ? "Please enter your name." : "",
+    phone: !PHONE_PATTERN.test(phone) ? "Please enter a valid phone number." : "",
+    address: address.length < 5 ? "Please enter your address." : "",
+  };
+  const formValid = !errors.email && !errors.name && !errors.phone && !errors.address;
 
   const subtotal = lines.reduce((sum, line) => sum + line.price * line.qty, 0);
   const savings = lines.reduce((sum, line) => sum + (line.regular - line.price) * line.qty, 0);
   const count = lines.reduce((sum, line) => sum + line.qty, 0);
+
+  const updateField = (field: keyof CheckoutForm, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setOrderReady(false);
+    setPaypalOrderId("");
+    setOrderError("");
+  };
+
+  const handleOrder = async (event: FormEvent) => {
+    event.preventDefault();
+    setTouched(true);
+    setOrderError("");
+    if (!formValid) return;
+
+    setIsOrdering(true);
+    try {
+      // Creates the PayPal order AND inserts the row into Supabase immediately.
+      const orderId = await createCheckoutOrder(
+        { email, name, phone, address },
+        Number(subtotal.toFixed(2)),
+        "USD",
+      );
+      setPaypalOrderId(orderId);
+      setOrderReady(true);
+    } catch (error) {
+      setOrderError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't save your order right now.",
+      );
+    } finally {
+      setIsOrdering(false);
+    }
+  };
+
+  const resetCheckout = () => {
+    setShowPayment(false);
+    setOrderReady(false);
+    setTouched(false);
+    setForm(EMPTY_FORM);
+    setPaypalOrderId("");
+    setOrderError("");
+  };
 
   return (
     <>
@@ -122,49 +198,116 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
           </p>
           {showPayment && lines.length > 0 ? (
             <div className="cart-checkout">
-              {/* Step 1: a valid email is required before PayPal renders. */}
-              <div className="checkout-email">
-                <label htmlFor="checkout-email-input">
-                  Email for your receipt &amp; order updates
-                </label>
+              <form className="checkout-form" onSubmit={handleOrder} noValidate>
+                <label htmlFor="checkout-name">Name</label>
+                <input
+                  id="checkout-name"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="Your full name"
+                  value={form.name}
+                  onChange={(event) => updateField("name", event.target.value)}
+                  aria-invalid={touched && !!errors.name}
+                  required
+                />
+                {touched && errors.name && (
+                  <p className="checkout-email-error">{errors.name}</p>
+                )}
+
+                <label htmlFor="checkout-email-input">Email</label>
                 <input
                   id="checkout-email-input"
                   type="email"
                   inputMode="email"
                   autoComplete="email"
                   placeholder="you@example.com"
-                  value={checkoutEmail}
-                  onChange={(event) => setCheckoutEmail(event.target.value)}
-                  aria-invalid={emailTouched && !emailValid}
+                  value={form.email}
+                  onChange={(event) => updateField("email", event.target.value)}
+                  aria-invalid={touched && !!errors.email}
+                  required
                 />
-                {emailTouched && !emailValid ? (
-                  <p className="checkout-email-error">
-                    Please enter a valid email address.
-                  </p>
-                ) : (
-                  <p className="checkout-email-note">
-                    Enter your email to continue to PayPal.
-                  </p>
+                {touched && errors.email && (
+                  <p className="checkout-email-error">{errors.email}</p>
                 )}
-              </div>
-              {/* Step 2: PayPal only mounts with a valid email + the live total. */}
-              {emailValid && (
-                <PayPalCheckoutButton
-                  email={checkoutEmail.trim()}
-                  amount={Number(subtotal.toFixed(2))}
-                  currency="USD"
-                  onSuccess={() => {
-                    alert(
-                      "Payment successful! A confirmation email is on its way.",
-                    );
-                    onClear();
-                    setShowPayment(false);
-                    onClose();
-                  }}
-                  onError={() => {
-                    alert("Payment failed, please try again later.");
-                  }}
+
+                <label htmlFor="checkout-phone">Phone</label>
+                <input
+                  id="checkout-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="+84 ..."
+                  value={form.phone}
+                  onChange={(event) => updateField("phone", event.target.value)}
+                  aria-invalid={touched && !!errors.phone}
+                  required
                 />
+                {touched && errors.phone && (
+                  <p className="checkout-email-error">{errors.phone}</p>
+                )}
+
+                <label htmlFor="checkout-address">Address</label>
+                <textarea
+                  id="checkout-address"
+                  autoComplete="street-address"
+                  placeholder="Street, district, city"
+                  rows={3}
+                  value={form.address}
+                  onChange={(event) => updateField("address", event.target.value)}
+                  aria-invalid={touched && !!errors.address}
+                  required
+                />
+                {touched && errors.address && (
+                  <p className="checkout-email-error">{errors.address}</p>
+                )}
+
+                {!orderReady && (
+                  <>
+                    <p className="checkout-email-note">
+                      Fill in your details, then press Order — your order is saved right away.
+                    </p>
+                    {orderError && (
+                      <p className="checkout-email-error" role="alert">
+                        {orderError}
+                      </p>
+                    )}
+                    <button
+                      type="submit"
+                      className="checkout-order-btn"
+                      disabled={isOrdering}
+                    >
+                      {isOrdering ? "Saving order..." : "Order"}
+                    </button>
+                  </>
+                )}
+              </form>
+
+              {orderReady && formValid && paypalOrderId && (
+                <>
+                  <p className="checkout-email-note">
+                    Order saved. Complete payment with PayPal below.
+                  </p>
+                  <PayPalCheckoutButton
+                    email={email}
+                    name={name}
+                    phone={phone}
+                    address={address}
+                    paypalOrderId={paypalOrderId}
+                    amount={Number(subtotal.toFixed(2))}
+                    currency="USD"
+                    onSuccess={() => {
+                      alert(
+                        "Payment successful! A confirmation email is on its way.",
+                      );
+                      onClear();
+                      resetCheckout();
+                      onClose();
+                    }}
+                    onError={() => {
+                      alert("Payment failed, please try again later.");
+                    }}
+                  />
+                </>
               )}
             </div>
           ) : (

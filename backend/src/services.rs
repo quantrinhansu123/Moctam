@@ -26,6 +26,15 @@ pub struct CreateOrderRequest {
     /// absent the order is still created but no receipt can be sent.
     #[serde(default)]
     pub email: Option<String>,
+    /// Customer full name (shipping / contact).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Customer phone number.
+    #[serde(default)]
+    pub phone: Option<String>,
+    /// Customer shipping address.
+    #[serde(default)]
+    pub address: Option<String>,
     /// Cart total. Accepts a JSON number (29.99) or string ("29.99").
     #[serde(default)]
     pub amount: Option<Value>,
@@ -96,6 +105,23 @@ fn is_valid_email(candidate: &str) -> bool {
         && !domain.contains("..")
 }
 
+fn optional_trimmed(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn is_valid_phone(candidate: &str) -> bool {
+    let digits = candidate.chars().filter(|c| c.is_ascii_digit()).count();
+    digits >= 8
+        && digits <= 15
+        && candidate.len() <= 40
+        && candidate
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '(' | ')' | '-' | '.'))
+}
+
 /// Mark the order COMPLETED, then claim the single email send and spawn the
 /// thank-you delivery in the background. Shared by the capture endpoint and
 /// the webhook handler (idempotent from both sides).
@@ -157,19 +183,47 @@ pub async fn create_paypal_order(
     paypal_client: web::Data<PayPalClient>,
     supabase: web::Data<SupabaseClient>,
 ) -> impl Responder {
-    // 1. Validate the customer email (optional but checked when present).
-    let email = req
-        .email
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(address) = email
-        && !is_valid_email(address)
+    // 1. Validate customer contact fields (optional individually; checked when present).
+    let email = optional_trimmed(req.email.as_deref());
+    if let Some(ref customer_email) = email
+        && !is_valid_email(customer_email)
     {
         return error_response(
             actix_web::http::StatusCode::BAD_REQUEST,
             "Please provide a valid email address.",
         );
+    }
+
+    let customer_name = optional_trimmed(req.name.as_deref());
+    if let Some(ref name) = customer_name {
+        let len = name.chars().count();
+        if len < 2 || len > 120 {
+            return error_response(
+                actix_web::http::StatusCode::BAD_REQUEST,
+                "name must be between 2 and 120 characters.",
+            );
+        }
+    }
+
+    let customer_phone = optional_trimmed(req.phone.as_deref());
+    if let Some(ref phone) = customer_phone
+        && !is_valid_phone(phone)
+    {
+        return error_response(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Please provide a valid phone number.",
+        );
+    }
+
+    let customer_address = optional_trimmed(req.address.as_deref());
+    if let Some(ref shipping_address) = customer_address {
+        let len = shipping_address.chars().count();
+        if len < 5 || len > 500 {
+            return error_response(
+                actix_web::http::StatusCode::BAD_REQUEST,
+                "address must be between 5 and 500 characters.",
+            );
+        }
     }
 
     // 2. Resolve the amount: payload wins, legacy product_id falls back to
@@ -219,20 +273,23 @@ pub async fn create_paypal_order(
         }
     };
 
-    // 4. Store the PENDING order (email ↔ paypal_order_id) in Supabase.
+    // 4. Store the PENDING order (contact ↔ paypal_order_id) in Supabase.
     //    A failed insert must not block checkout — the webhook path then
     //    simply logs that no record exists.
-    if let Some(address) = email {
+    if let Some(customer_email) = email {
         let row = OrderInsert {
             paypal_order_id: order_res.id.clone(),
-            customer_email: address.to_owned(),
+            customer_email: customer_email.clone(),
+            customer_name,
+            customer_phone,
+            customer_address,
             total_amount: amount,
             currency: currency.clone(),
             status: "PENDING".to_owned(),
         };
         match supabase.insert_order(&row).await {
             Ok(()) => println!(
-                "[ORDERS] PENDING order {} stored for {address}",
+                "[ORDERS] PENDING order {} stored for {customer_email}",
                 order_res.id
             ),
             Err(error) => eprintln!(

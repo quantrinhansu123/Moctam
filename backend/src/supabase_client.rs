@@ -32,6 +32,12 @@ pub struct FeedbackRow {
 pub struct OrderInsert {
     pub paypal_order_id: String,
     pub customer_email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_address: Option<String>,
     pub total_amount: f64,
     pub currency: String,
     pub status: String,

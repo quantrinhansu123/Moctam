@@ -1,39 +1,72 @@
 import { PayPalButtons } from "@paypal/react-paypal-js";
 import { apiPost } from "../lib/api";
 
-interface PayPalCheckoutButtonProps {
-  /** Customer email — sent to the backend so it can store the order and
-   *  send the post-purchase receipt. */
+export interface CheckoutCustomer {
   email: string;
+  name: string;
+  phone: string;
+  address: string;
+}
+
+interface PayPalCheckoutButtonProps extends CheckoutCustomer {
   /** Cart total in the given currency. */
   amount: number;
   currency?: string;
+  /** When set, Order was already created (and stored in Supabase) — reuse it. */
+  paypalOrderId?: string;
   onSuccess?: () => void;
   onError?: (err: unknown) => void;
 }
 
+export async function createCheckoutOrder(
+  customer: CheckoutCustomer,
+  amount: number,
+  currency = "USD",
+): Promise<string> {
+  const orderData = await apiPost<{ paypal_order_id?: string }>(
+    "/api/orders/paypal/create",
+    {
+      email: customer.email,
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address,
+      amount,
+      currency,
+    },
+  );
+
+  if (orderData?.paypal_order_id) {
+    return orderData.paypal_order_id;
+  }
+  throw new Error(
+    orderData ? JSON.stringify(orderData) : "Missing paypal_order_id",
+  );
+}
+
 export function PayPalCheckoutButton({
   email,
+  name,
+  phone,
+  address,
   amount,
   currency = "USD",
+  paypalOrderId,
   onSuccess,
   onError,
 }: PayPalCheckoutButtonProps) {
   return (
     <PayPalButtons
-      style={{ layout: "vertical", label: "buynow" }}
+      fundingSource="paypal"
+      style={{ layout: "vertical", label: "paypal" }}
       createOrder={async () => {
         try {
-          const orderData = await apiPost<{ paypal_order_id?: string }>(
-            "/api/orders/paypal/create",
-            { email, amount, currency },
-          );
-
-          if (orderData?.paypal_order_id) {
-            return orderData.paypal_order_id;
+          if (paypalOrderId) {
+            return paypalOrderId;
           }
-          throw new Error(
-            orderData ? JSON.stringify(orderData) : "Missing paypal_order_id",
+          return await createCheckoutOrder(
+            { email, name, phone, address },
+            amount,
+            currency,
           );
         } catch (error) {
           console.error("Error creating PayPal order:", error);

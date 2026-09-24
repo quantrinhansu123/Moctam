@@ -199,18 +199,27 @@
   margin-top: 2px;
 }
 
-/* ---- Pre-checkout email collection (cart drawer) ---- */
+/* ---- Pre-checkout customer form (cart drawer) ---- */
+.checkout-form,
 .checkout-email {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin: 10px 0;
 }
+.checkout-form label,
 .checkout-email label {
   font: 700 13px/1.3 Poppins, sans-serif;
   letter-spacing: 0.04em;
   color: var(--ink);
+  margin-top: 6px;
 }
+.checkout-form label:first-child,
+.checkout-email label:first-child {
+  margin-top: 0;
+}
+.checkout-form input,
+.checkout-form textarea,
 .checkout-email input {
   width: 100%;
   border: 1px solid #ddd;
@@ -219,13 +228,16 @@
   font: inherit;
   letter-spacing: 0.03em;
   background: #fff;
+  resize: vertical;
 }
+.checkout-form input:focus,
+.checkout-form textarea:focus,
 .checkout-email input:focus {
   outline: none;
   border-color: var(--gold);
 }
 .checkout-email-note {
-  margin: 0;
+  margin: 4px 0 0;
   color: var(--muted);
   font-size: 12.5px;
   letter-spacing: 0.02em;
@@ -235,4 +247,7 @@
   color: #8e1f0b;
   font-size: 12.5px;
   letter-spacing: 0.02em;
+}
+.checkout-order-btn {
+  margin-top: 8px;
 }
