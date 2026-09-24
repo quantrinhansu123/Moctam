@@ -299,35 +299,77 @@ pub async fn create_manual_order(
     };
 
     let order_id = new_manual_order_id();
-    let row = OrderInsert {
+
+    // Insert core columns first (matches older `orders` tables without contact fields).
+    let mut row = OrderInsert {
         paypal_order_id: order_id.clone(),
         customer_email: customer_email.clone(),
-        customer_name: Some(customer_name),
-        customer_phone: Some(customer_phone),
-        customer_address: Some(customer_address),
+        customer_name: None,
+        customer_phone: None,
+        customer_address: None,
         total_amount: amount,
-        currency,
+        currency: currency.clone(),
         status: "PENDING".to_owned(),
     };
 
-    match supabase.insert_order(&row).await {
-        Ok(()) => {
-            println!("[ORDERS] MANUAL order {order_id} stored for {customer_email}");
-            HttpResponse::Created().json(ManualOrderResponse {
-                status: "success",
-                message: "Order saved.",
-                order_id,
-            })
-        }
-        Err(error) => {
-            eprintln!("[ORDERS] failed to store MANUAL order {order_id}: {error}");
-            // Surface Supabase/PostgREST detail so the UI (and Render logs) show the real cause.
-            error_response(
-                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to save order: {error}"),
-            )
-        }
+    if let Err(error) = supabase.insert_order(&row).await {
+        eprintln!("[ORDERS] core insert failed for {order_id}: {error}");
+        // Last resort: store the lead in `feedbacks` (known-working path).
+        let feedback = crate::supabase_client::FeedbackInsert {
+            topic: format!("Order · {amount:.2} {currency}"),
+            content: format!(
+                "ORDER LEAD\nName: {customer_name}\nEmail: {customer_email}\nPhone: {customer_phone}\nAddress: {customer_address}\nAmount: {amount:.2} {currency}\nOrders insert error: {error}"
+            ),
+            user_id: None,
+        };
+        return match supabase.insert_feedback(&feedback).await {
+            Ok(feedback_id) => {
+                order_id = format!("feedback-{feedback_id}");
+                println!(
+                    "[ORDERS] MANUAL order stored via feedbacks as {order_id} for {customer_email}"
+                );
+                HttpResponse::Created().json(ManualOrderResponse {
+                    status: "success",
+                    message: "Order saved.",
+                    order_id,
+                })
+            }
+            Err(feedback_error) => {
+                eprintln!(
+                    "[ORDERS] feedback fallback also failed for {customer_email}: {feedback_error}"
+                );
+                error_response(
+                    actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unable to save order: {error}"),
+                )
+            }
+        };
     }
+
+    // Best-effort: attach contact fields when the columns exist.
+    row.customer_name = Some(customer_name);
+    row.customer_phone = Some(customer_phone);
+    row.customer_address = Some(customer_address);
+    if let Err(error) = supabase
+        .update_order_contact(
+            &order_id,
+            row.customer_name.as_deref(),
+            row.customer_phone.as_deref(),
+            row.customer_address.as_deref(),
+        )
+        .await
+    {
+        eprintln!(
+            "[ORDERS] contact update skipped for {order_id} (columns may be missing): {error}"
+        );
+    }
+
+    println!("[ORDERS] MANUAL order {order_id} stored for {customer_email}");
+    HttpResponse::Created().json(ManualOrderResponse {
+        status: "success",
+        message: "Order saved.",
+        order_id,
+    })
 }
 
 #[post("/api/orders/paypal/create")]

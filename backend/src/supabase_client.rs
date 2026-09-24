@@ -189,6 +189,61 @@ impl SupabaseClient {
         Ok(())
     }
 
+    /// Best-effort update of shipping/contact columns after a core insert.
+    pub async fn update_order_contact(
+        &self,
+        paypal_order_id: &str,
+        customer_name: Option<&str>,
+        customer_phone: Option<&str>,
+        customer_address: Option<&str>,
+    ) -> Result<(), String> {
+        let mut body = serde_json::Map::new();
+        if let Some(value) = customer_name {
+            body.insert("customer_name".to_owned(), Value::String(value.to_owned()));
+        }
+        if let Some(value) = customer_phone {
+            body.insert("customer_phone".to_owned(), Value::String(value.to_owned()));
+        }
+        if let Some(value) = customer_address {
+            body.insert(
+                "customer_address".to_owned(),
+                Value::String(value.to_owned()),
+            );
+        }
+        if body.is_empty() {
+            return Ok(());
+        }
+        body.insert(
+            "updated_at".to_owned(),
+            Value::String(now_timestamp()),
+        );
+
+        let url = format!(
+            "{}/rest/v1/orders?paypal_order_id=eq.{}",
+            self.base_url, paypal_order_id
+        );
+
+        let response = self
+            .client
+            .patch(&url)
+            .bearer_auth(&self.key)
+            .header("Prefer", "return=minimal")
+            .json(&Value::Object(body))
+            .send()
+            .await
+            .map_err(|error| format!("Failed to reach Supabase: {error}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "Supabase contact update failed ({status}): {error_text}"
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Update `status` (+ `updated_at`) for an order. Returns how many rows
     /// were affected (0 means no matching order record).
     pub async fn mark_order_status(

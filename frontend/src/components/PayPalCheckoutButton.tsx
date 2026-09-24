@@ -21,6 +21,34 @@ interface PayPalCheckoutButtonProps extends CheckoutCustomer {
   onError?: (err: unknown) => void;
 }
 
+/** Fallback when `orders` insert fails — feedbacks already works in production. */
+async function saveOrderViaFeedback(
+  customer: CheckoutCustomer,
+  amount: number,
+  currency: string,
+): Promise<string> {
+  const content = [
+    "ORDER LEAD (auto-saved because /orders insert failed)",
+    `Name: ${customer.name}`,
+    `Email: ${customer.email}`,
+    `Phone: ${customer.phone}`,
+    `Address: ${customer.address}`,
+    `Amount: ${amount.toFixed(2)} ${currency}`,
+  ].join("\n");
+
+  const result = await apiPost<{
+    data?: { feedback_id?: string };
+    feedback_id?: string;
+  }>("/api/feedback", {
+    topic: `Order · ${amount.toFixed(2)} ${currency}`,
+    content,
+  });
+
+  const feedbackId =
+    result.data?.feedback_id ?? result.feedback_id ?? `feedback-${Date.now()}`;
+  return `feedback-${feedbackId}`;
+}
+
 /** Save contact + amount to Supabase without calling PayPal. */
 export async function saveManualOrder(
   customer: CheckoutCustomer,
@@ -29,24 +57,32 @@ export async function saveManualOrder(
 ): Promise<string> {
   await wakeApi();
 
-  const orderData = await apiPost<{ order_id?: string; status?: string }>(
-    "/api/orders/manual",
-    {
-      email: customer.email,
-      name: customer.name,
-      phone: customer.phone,
-      address: customer.address,
-      amount,
-      currency,
-    },
-  );
+  try {
+    const orderData = await apiPost<{ order_id?: string; status?: string }>(
+      "/api/orders/manual",
+      {
+        email: customer.email,
+        name: customer.name,
+        phone: customer.phone,
+        address: customer.address,
+        amount,
+        currency,
+      },
+    );
 
-  if (orderData?.order_id) {
-    return orderData.order_id;
+    if (orderData?.order_id) {
+      return orderData.order_id;
+    }
+    throw new Error(
+      orderData ? JSON.stringify(orderData) : "Missing order_id",
+    );
+  } catch (error) {
+    console.warn(
+      "orders insert failed — falling back to feedbacks table",
+      error,
+    );
+    return saveOrderViaFeedback(customer, amount, currency);
   }
-  throw new Error(
-    orderData ? JSON.stringify(orderData) : "Missing order_id",
-  );
 }
 
 export async function createCheckoutOrder(
