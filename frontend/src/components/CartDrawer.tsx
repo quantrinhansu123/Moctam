@@ -85,17 +85,21 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
 
     setIsOrdering(true);
     try {
-      const orderId = await createCheckoutOrder(
+      const saved = await createCheckoutOrder(
         { email, name, phone, address },
         Number(subtotal.toFixed(2)),
         "USD",
       );
-      setPaypalOrderId(orderId);
+      setPaypalOrderId(saved.orderId);
       setOrderReady(true);
 
       // Temporary: PayPal Live is restricted — order data is already in Supabase.
       if (SKIP_PAYPAL_CHECKOUT) {
-        alert("Order saved! We received your details.");
+        alert(
+          saved.via === "feedbacks"
+            ? "Order saved to feedbacks (orders table still blocked). Check Supabase → feedbacks."
+            : "Order saved! Check Supabase → orders.",
+        );
         onClear();
         resetCheckout();
         onClose();

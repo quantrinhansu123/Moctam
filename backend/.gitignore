@@ -1,0 +1,11 @@
+# Local environment
+.env
+.env.*
+
+# Dependencies / build
+node_modules/
+target/
+legacy-rust/target/
+
+# OS
+.DS_Store

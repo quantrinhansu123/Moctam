@@ -1,0 +1,438 @@
+import cors from "cors";
+import express from "express";
+import { isPlaceholder, settings } from "./config.js";
+import { requireAdmin, signAdminToken } from "./auth.js";
+import { emailEnabled, sendThankYouEmail } from "./email.js";
+import {
+  capturePaypalOrder,
+  createPaypalOrder,
+  verifyWebhookSignature,
+} from "./paypal.js";
+import {
+  claimEmailSend,
+  insertFeedback,
+  insertOrder,
+  listOrders,
+  markOrderStatus,
+  updateOrderContact,
+} from "./supabase.js";
+
+const app = express();
+app.use(cors());
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString("utf8");
+    },
+  }),
+);
+
+function error(res, status, message) {
+  return res.status(status).json({ status: "error", message });
+}
+
+function isValidEmail(candidate) {
+  if (!candidate || candidate.length > 254 || /\s/.test(candidate)) return false;
+  const [local, domain] = candidate.split("@");
+  return Boolean(
+    local &&
+      domain &&
+      !domain.includes("@") &&
+      domain.includes(".") &&
+      !domain.startsWith(".") &&
+      !domain.endsWith(".") &&
+      !domain.includes(".."),
+  );
+}
+
+function isValidPhone(candidate) {
+  const digits = [...candidate].filter((c) => /\d/.test(c)).length;
+  return (
+    digits >= 8 &&
+    digits <= 15 &&
+    candidate.length <= 40 &&
+    [...candidate].every((c) => /[\d+\s().-]/.test(c))
+  );
+}
+
+function parseAmount(value) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function trimOrEmpty(value) {
+  return String(value ?? "").trim();
+}
+
+async function completeOrderAndQueueEmail(paypalOrderId, source) {
+  try {
+    const updated = await markOrderStatus(paypalOrderId, "COMPLETED");
+    if (!updated) {
+      console.log(
+        `[ORDERS] (${source}) no order record found for ${paypalOrderId}`,
+      );
+    } else {
+      console.log(`[ORDERS] (${source}) ${paypalOrderId} → COMPLETED`);
+    }
+  } catch (error) {
+    console.error(
+      `[ORDERS] (${source}) failed to mark ${paypalOrderId} COMPLETED:`,
+      error.message || error,
+    );
+  }
+
+  try {
+    const order = await claimEmailSend(paypalOrderId);
+    if (!order) {
+      console.log(
+        `[EMAIL] (${source}) skipping email for ${paypalOrderId}: already sent or no order record`,
+      );
+      return;
+    }
+
+    const recipient = order.customer_email;
+    const amount = order.total_amount;
+    const currency = order.currency || "USD";
+    console.log(
+      `[EMAIL] (${source}) queueing thank-you email to ${recipient} (Order #${paypalOrderId})`,
+    );
+    sendThankYouEmail(recipient, paypalOrderId, amount, currency).catch((error) => {
+      console.error(`[EMAIL] failed for ${paypalOrderId}:`, error.message || error);
+    });
+  } catch (error) {
+    console.error(
+      `[EMAIL] (${source}) could not claim email for ${paypalOrderId}:`,
+      error.message || error,
+    );
+  }
+}
+
+app.get("/", (_req, res) => {
+  res.type("text").send("Ok!");
+});
+
+app.post("/api/feedback", async (req, res) => {
+  try {
+    const topic = trimOrEmpty(req.body?.topic);
+    const content = trimOrEmpty(req.body?.content);
+    if (!topic) return error(res, 400, "Topic is required.");
+    if ([...topic].length > 100) {
+      return error(res, 400, "Topic must not exceed 100 characters.");
+    }
+    if (!content) return error(res, 400, "Content is required.");
+    if ([...content].length > 5000) {
+      return error(res, 400, "Content must not exceed 5000 characters.");
+    }
+
+    const feedbackId = await insertFeedback({ topic, content });
+    return res.status(201).json({
+      status: "success",
+      message: "Thank you for your feedback!",
+      data: { feedback_id: feedbackId },
+    });
+  } catch (err) {
+    console.error("Failed to save feedback:", err.message || err);
+    return error(res, 500, "Unable to save feedback right now.");
+  }
+});
+
+app.post("/api/orders/manual", async (req, res) => {
+  try {
+    const customerEmail = trimOrEmpty(req.body?.email);
+    const customerName = trimOrEmpty(req.body?.name);
+    const customerPhone = trimOrEmpty(req.body?.phone);
+    const customerAddress = trimOrEmpty(req.body?.address);
+
+    if (!customerEmail) return error(res, 400, "Email is required.");
+    if (!isValidEmail(customerEmail)) {
+      return error(res, 400, "Please provide a valid email address.");
+    }
+    if ([...customerName].length < 2 || [...customerName].length > 120) {
+      return error(res, 400, "name must be between 2 and 120 characters.");
+    }
+    if (!isValidPhone(customerPhone)) {
+      return error(res, 400, "Please provide a valid phone number.");
+    }
+    if ([...customerAddress].length < 5 || [...customerAddress].length > 500) {
+      return error(res, 400, "address must be between 5 and 500 characters.");
+    }
+
+    const amount = parseAmount(req.body?.amount);
+    if (!(amount > 0 && amount <= 9999.99)) {
+      return error(res, 400, "amount must be greater than 0 and at most 9999.99.");
+    }
+    const currency = trimOrEmpty(req.body?.currency || "USD").toUpperCase();
+    if (currency.length !== 3) {
+      return error(res, 400, "currency must be a 3-letter ISO-4217 code.");
+    }
+
+    let orderId = `manual-${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+    try {
+      await insertOrder({
+        paypal_order_id: orderId,
+        customer_email: customerEmail,
+        total_amount: amount,
+        currency,
+        status: "PENDING",
+      });
+    } catch (orderError) {
+      console.error(`[ORDERS] core insert failed for ${orderId}:`, orderError.message);
+      try {
+        const feedbackId = await insertFeedback({
+          topic: `Order · ${amount.toFixed(2)} ${currency}`,
+          content: [
+            "ORDER LEAD",
+            `Name: ${customerName}`,
+            `Email: ${customerEmail}`,
+            `Phone: ${customerPhone}`,
+            `Address: ${customerAddress}`,
+            `Amount: ${amount.toFixed(2)} ${currency}`,
+            `Orders insert error: ${orderError.message}`,
+          ].join("\n"),
+        });
+        orderId = `feedback-${feedbackId}`;
+        console.log(`[ORDERS] MANUAL order stored via feedbacks as ${orderId}`);
+        return res.status(201).json({
+          status: "success",
+          message: "Order saved.",
+          order_id: orderId,
+        });
+      } catch (feedbackError) {
+        console.error("[ORDERS] feedback fallback also failed:", feedbackError.message);
+        return error(res, 500, `Unable to save order: ${orderError.message}`);
+      }
+    }
+
+    try {
+      await updateOrderContact(orderId, {
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        customer_address: customerAddress,
+      });
+    } catch (contactError) {
+      console.warn(
+        `[ORDERS] contact update skipped for ${orderId}:`,
+        contactError.message,
+      );
+    }
+
+    console.log(`[ORDERS] MANUAL order ${orderId} stored for ${customerEmail}`);
+    return res.status(201).json({
+      status: "success",
+      message: "Order saved.",
+      order_id: orderId,
+    });
+  } catch (err) {
+    console.error("[ORDERS] manual unexpected error:", err.message || err);
+    return error(res, 500, "Unable to save order right now.");
+  }
+});
+
+app.post("/api/orders/paypal/create", async (req, res) => {
+  try {
+    const email = trimOrEmpty(req.body?.email);
+    if (email && !isValidEmail(email)) {
+      return error(res, 400, "Please provide a valid email address.");
+    }
+
+    let amount = parseAmount(req.body?.amount);
+    if (amount == null && req.body?.product_id) amount = 1;
+    if (!(amount > 0 && amount <= 9999.99)) {
+      return error(res, 400, "amount is required.");
+    }
+
+    const currency = trimOrEmpty(req.body?.currency || "USD").toUpperCase();
+    if (currency.length !== 3) {
+      return error(res, 400, "currency must be a 3-letter ISO-4217 code.");
+    }
+
+    console.log(`Initiating PayPal checkout: ${amount.toFixed(2)} ${currency}`);
+    const order = await createPaypalOrder(amount, currency);
+
+    if (email) {
+      try {
+        await insertOrder({
+          paypal_order_id: order.id,
+          customer_email: email,
+          customer_name: trimOrEmpty(req.body?.name) || undefined,
+          customer_phone: trimOrEmpty(req.body?.phone) || undefined,
+          customer_address: trimOrEmpty(req.body?.address) || undefined,
+          total_amount: amount,
+          currency,
+          status: "PENDING",
+        });
+        console.log(`[ORDERS] PENDING order ${order.id} stored for ${email}`);
+      } catch (error) {
+        console.error(`[ORDERS] failed to store PENDING order ${order.id}:`, error.message);
+      }
+    }
+
+    const approveUrl =
+      (order.links || []).find((link) => link.rel === "approve")?.href || "";
+
+    return res.json({
+      paypal_order_id: order.id,
+      approve_url: approveUrl,
+    });
+  } catch (err) {
+    console.error("PayPal Create Error:", err.message || err);
+    return error(res, 500, "Failed to communicate with PayPal");
+  }
+});
+
+app.post("/api/orders/paypal/capture", async (req, res) => {
+  try {
+    const paypalOrderId = trimOrEmpty(req.body?.paypal_order_id);
+    if (!paypalOrderId) return error(res, 400, "paypal_order_id is required.");
+
+    const capture = await capturePaypalOrder(paypalOrderId);
+    if (capture.status === "COMPLETED") {
+      await completeOrderAndQueueEmail(paypalOrderId, "capture");
+      return res.json({
+        status: "success",
+        message: "Order captured successfully.",
+        paypal_order_id: capture.id,
+      });
+    }
+
+    if (capture.status === "FAILED") {
+      try {
+        await markOrderStatus(paypalOrderId, "FAILED");
+      } catch (error) {
+        console.error("[ORDERS] failed to mark FAILED:", error.message);
+      }
+    }
+
+    return error(res, 400, `Order status is not COMPLETED: ${capture.status}`);
+  } catch (err) {
+    console.error("PayPal Capture Error:", err.message || err);
+    return error(res, 500, "Failed to capture payment via PayPal");
+  }
+});
+
+app.post("/api/webhooks/paypal", async (req, res) => {
+  try {
+    const raw = req.rawBody || JSON.stringify(req.body);
+    const event = typeof req.body === "object" ? req.body : JSON.parse(raw);
+
+    const headers = {
+      "paypal-auth-algo": req.header("paypal-auth-algo"),
+      "paypal-cert-url": req.header("paypal-cert-url"),
+      "paypal-transmission-id": req.header("paypal-transmission-id"),
+      "paypal-transmission-sig": req.header("paypal-transmission-sig"),
+      "paypal-transmission-time": req.header("paypal-transmission-time"),
+    };
+
+    if (
+      !headers["paypal-auth-algo"] ||
+      !headers["paypal-cert-url"] ||
+      !headers["paypal-transmission-id"] ||
+      !headers["paypal-transmission-sig"] ||
+      !headers["paypal-transmission-time"]
+    ) {
+      // Allow mock mode without headers when webhook id unset
+      if (!isPlaceholder(settings.paypalWebhookId)) {
+        return error(res, 400, "Missing PayPal webhook signature headers.");
+      }
+    } else {
+      const ok = await verifyWebhookSignature(headers, raw);
+      if (!ok) return error(res, 401, "Webhook signature verification failed.");
+    }
+
+    const eventType = event.event_type || "";
+    if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
+      const orderId =
+        event?.resource?.supplementary_data?.related_ids?.order_id;
+      if (orderId) {
+        await completeOrderAndQueueEmail(orderId, "webhook");
+        return res.json({ status: "processed", paypal_order_id: orderId });
+      }
+      return res.json({ status: "ignored" });
+    }
+
+    if (
+      eventType === "PAYMENT.CAPTURE.DENIED" ||
+      eventType === "PAYMENT.CAPTURE.FAILED"
+    ) {
+      const orderId =
+        event?.resource?.supplementary_data?.related_ids?.order_id;
+      if (orderId) {
+        try {
+          await markOrderStatus(orderId, "FAILED");
+        } catch (error) {
+          console.error(`[ORDERS] webhook failed to mark FAILED:`, error.message);
+        }
+      }
+      return res.json({ status: "processed" });
+    }
+
+    console.log(`[WEBHOOK] ignored event type: ${eventType}`);
+    return res.json({ status: "ignored" });
+  } catch (err) {
+    console.error("[WEBHOOK] error:", err.message || err);
+    return error(res, 500, "Webhook verification error.");
+  }
+});
+
+app.post("/api/admin/login", (req, res) => {
+  if (
+    isPlaceholder(settings.adminUsername) ||
+    isPlaceholder(settings.adminPassword)
+  ) {
+    return error(
+      res,
+      503,
+      "Admin login is not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.",
+    );
+  }
+
+  const username = trimOrEmpty(req.body?.username);
+  const password = trimOrEmpty(req.body?.password);
+  if (
+    username !== settings.adminUsername ||
+    password !== settings.adminPassword
+  ) {
+    return error(res, 401, "Invalid username or password.");
+  }
+
+  return res.json({
+    status: "success",
+    token: signAdminToken(username),
+  });
+});
+
+app.get("/api/admin/orders", requireAdmin, async (_req, res) => {
+  try {
+    const orders = await listOrders(100);
+    return res.json(orders);
+  } catch (err) {
+    console.error("[ADMIN] list orders failed:", err.message || err);
+    return error(res, 500, "Unable to load orders right now.");
+  }
+});
+
+if (emailEnabled()) {
+  console.log("Email: Resend API enabled");
+} else {
+  console.log(
+    "[MOCK EMAIL] Resend API not configured — thank-you emails will be logged to stdout",
+  );
+}
+
+if (
+  isPlaceholder(settings.adminUsername) ||
+  isPlaceholder(settings.adminPassword)
+) {
+  console.log("[ADMIN] ADMIN_USERNAME / ADMIN_PASSWORD not set — login disabled");
+} else {
+  console.log(`[ADMIN] admin login enabled for user '${settings.adminUsername}'`);
+}
+
+app.listen(settings.port, settings.host, () => {
+  console.log(`Starting Express server on ${settings.host}:${settings.port}`);
+});

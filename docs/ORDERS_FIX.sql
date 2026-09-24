@@ -1,6 +1,12 @@
 -- Fix / align the `orders` table for Mộc Tâm checkout.
 -- Run in Supabase SQL Editor (same project as SUPABASE_URL on Render).
 
+-- ROOT CAUSE of failed Order saves:
+-- 1) user_id is NOT NULL
+-- 2) user_id has FK to users (guest checkout has no auth user)
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS fk_order_user;
+ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;
+
 CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     paypal_order_id VARCHAR(255) UNIQUE NOT NULL,
@@ -74,7 +80,12 @@ TO anon, authenticated
 USING (true)
 WITH CHECK (true);
 
-NOTIFY pgrst, 'reload schema';
+-- Guest checkout does not have an auth user; allow NULL user_id.
+-- THIS is the cause of: null value in column "user_id" violates not-null constraint
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS fk_order_user;
+ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;
+
+-- Or, if you prefer keeping NOT NULL, the backend now sends a random UUID per guest order.
 
 SELECT column_name, data_type, is_nullable
 FROM information_schema.columns

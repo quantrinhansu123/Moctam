@@ -54,7 +54,7 @@ export async function saveManualOrder(
   customer: CheckoutCustomer,
   amount: number,
   currency = "USD",
-): Promise<string> {
+): Promise<{ orderId: string; via: "orders" | "feedbacks" }> {
   await wakeApi();
 
   try {
@@ -71,7 +71,10 @@ export async function saveManualOrder(
     );
 
     if (orderData?.order_id) {
-      return orderData.order_id;
+      const via = String(orderData.order_id).startsWith("feedback-")
+        ? "feedbacks"
+        : "orders";
+      return { orderId: orderData.order_id, via };
     }
     throw new Error(
       orderData ? JSON.stringify(orderData) : "Missing order_id",
@@ -81,7 +84,8 @@ export async function saveManualOrder(
       "orders insert failed — falling back to feedbacks table",
       error,
     );
-    return saveOrderViaFeedback(customer, amount, currency);
+    const orderId = await saveOrderViaFeedback(customer, amount, currency);
+    return { orderId, via: "feedbacks" };
   }
 }
 
@@ -89,7 +93,7 @@ export async function createCheckoutOrder(
   customer: CheckoutCustomer,
   amount: number,
   currency = "USD",
-): Promise<string> {
+): Promise<{ orderId: string; via: "orders" | "feedbacks" }> {
   if (SKIP_PAYPAL_CHECKOUT) {
     return saveManualOrder(customer, amount, currency);
   }
@@ -109,7 +113,7 @@ export async function createCheckoutOrder(
   );
 
   if (orderData?.paypal_order_id) {
-    return orderData.paypal_order_id;
+    return { orderId: orderData.paypal_order_id, via: "orders" };
   }
   throw new Error(
     orderData ? JSON.stringify(orderData) : "Missing paypal_order_id",
@@ -136,11 +140,11 @@ export function PayPalCheckoutButton({
           if (paypalOrderId) {
             return paypalOrderId;
           }
-          return await createCheckoutOrder(
+          return (await createCheckoutOrder(
             { email, name, phone, address },
             amount,
             currency,
-          );
+          )).orderId;
         } catch (error) {
           console.error("Error creating PayPal order:", error);
           onError?.(error);
