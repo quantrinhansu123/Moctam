@@ -1,28 +1,32 @@
 import { useEffect, useState } from "react";
-import { heroSlides } from "../data/products";
 import { money } from "../lib/format";
 import { starIcons } from "../lib/icons";
 import { useProductCatalog } from "../products/ProductProvider";
+import { useSiteSettings } from "../lib/siteSettings";
 
 export function ShopScreen({ onProduct }: { onProduct: (id: string) => void }) {
   const { products } = useProductCatalog();
+  const { settings } = useSiteSettings();
+  const heroSlides = settings.heroSlides;
   const [slide, setSlide] = useState(0);
 
   useEffect(() => {
+    if (!heroSlides.length) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const timer = window.setInterval(
       () => setSlide((current) => (current + 1) % heroSlides.length),
       5000,
     );
     return () => window.clearInterval(timer);
-  }, []);
+  }, [heroSlides.length]);
 
-  const show = (index: number) =>
-    setSlide((index + heroSlides.length) % heroSlides.length);
+  const show = (index: number) => {
+    if (heroSlides.length) setSlide((index + heroSlides.length) % heroSlides.length);
+  };
 
   return (
     <>
-      <section className="home-hero" aria-label="Mộc Tâm tea collection">
+      {heroSlides.length > 0 && <section className="home-hero" aria-label="Mộc Tâm tea collection">
         <div
           className="home-hero-slides"
           style={{ transform: `translateX(-${slide * 100}%)` }}
@@ -58,14 +62,14 @@ export function ShopScreen({ onProduct }: { onProduct: (id: string) => void }) {
           </svg>
         </button>
         <div className="home-hero-copy">
-          <p className="eyebrow">MỘC TÂM</p>
-          <h1>Herbal Tea, Brewed Slowly</h1>
-          <p>Natural tea and herbs, gently packaged for quiet moments in your day.</p>
-          <a className="home-hero-cta" href="#products">
-            Shop the Collection
+          <p className="eyebrow">{settings.hero.eyebrow}</p>
+          <h1>{settings.hero.title}</h1>
+          <p>{settings.hero.description}</p>
+          <a className="home-hero-cta" href={settings.hero.actionHref}>
+            {settings.hero.actionLabel}
           </a>
         </div>
-      </section>
+      </section>}
 
       <section className="product-list-section" id="products">
         <h2>Our Products</h2>

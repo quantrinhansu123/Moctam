@@ -1,0 +1,32 @@
+{
+  "heroSlides": [
+    { "image": "/assets/images/home-banner-1.png", "alt": "Mộc Tâm herbal tea in a misty tea garden" },
+    { "image": "/assets/images/home-banner-2.png", "alt": "Mộc Tâm herbal tea and loose leaves" },
+    { "image": "/assets/images/home-banner-3.png", "alt": "Mộc Tâm tea at sunrise" }
+  ],
+  "hero": {
+    "eyebrow": "MỘC TÂM",
+    "title": "Herbal Tea, Brewed Slowly",
+    "description": "Natural tea and herbs, gently packaged for quiet moments in your day.",
+    "actionLabel": "Shop the Collection",
+    "actionHref": "#products"
+  },
+  "announcementBar": [
+    { "glyph": "redeem", "text": "SAVE 50% TODAY", "enabled": true },
+    { "glyph": "verified_user", "text": "90-DAY MONEY-BACK GUARANTEE", "enabled": true },
+    { "glyph": "local_shipping", "text": "FREE SHIPPING", "enabled": true },
+    { "glyph": "schedule", "text": "DELIVERY IN 3–8 DAYS", "enabled": true }
+  ],
+  "footer": {
+    "logo": "/assets/images/moc-tam-logo.png",
+    "brand": "Mộc Tâm",
+    "description": "Natural herbal tea that brings calm and tranquility to your day. Made with carefully selected herbs for everyday wellness.",
+    "badges": ["100% Natural", "90-Day Returns"],
+    "quickLinks": [{ "label": "Shop", "target": "shop" }, { "label": "Four-Herb Raspberry Leaf Tea", "productId": "tra-moc-tam" }, { "label": "Four-Herb Raspberry Leaf Tea", "productId": "mam-xoi" }, { "label": "How It Works", "target": "how" }, { "label": "Track Order", "target": "track" }],
+    "careLinks": [{ "label": "Contact Us", "target": "contact" }, { "label": "Returns & Refunds", "target": "how" }, { "label": "Privacy Policy", "target": "contact" }, { "label": "Terms of Service", "target": "contact" }, { "label": "Shipping & Delivery", "target": "how" }],
+    "taxId": "18322985798",
+    "address": "7303 BREEN DR, SUITE D2, HOUSTON TX 77086",
+    "hours": "Mon – Sun: 8:00 AM – 8:00 PM (CST)",
+    "copyright": "© 2026, Mộc Tâm. Powered by Mộc Tâm. All rights reserved."
+  }
+}

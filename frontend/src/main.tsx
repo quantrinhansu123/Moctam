@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { ProductProvider } from "./products/ProductProvider";
+import { SiteSettingsProvider } from "./lib/siteSettings";
 
 const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID;
 if (!paypalClientId) {
@@ -26,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <PayPalScriptProvider options={paypalOptions}>
       <ProductProvider>
-        <App />
+        <SiteSettingsProvider><App /></SiteSettingsProvider>
       </ProductProvider>
     </PayPalScriptProvider>
   </StrictMode>,

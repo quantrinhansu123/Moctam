@@ -28,6 +28,9 @@ import {
   updateOrderContact,
   updateOrderItems,
   upsertSiteProduct,
+  ensureSiteSettings,
+  getSiteSettings,
+  upsertSiteSettings,
 } from "./supabase.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +50,24 @@ function loadDefaultProducts() {
 }
 
 const DEFAULT_PRODUCTS = loadDefaultProducts();
+
+function loadDefaultSettings() {
+  try {
+    return JSON.parse(readFileSync(path.join(__dirname, "data", "site_settings.defaults.json"), "utf8"));
+  } catch (error) {
+    console.warn("[SETTINGS] could not load defaults:", error.message || error);
+    return {};
+  }
+}
+const DEFAULT_SETTINGS = loadDefaultSettings();
+
+function mergeSettings(defaults, persisted) {
+  const merged = { ...defaults, ...(persisted || {}) };
+  for (const key of ["hero", "footer"]) {
+    merged[key] = { ...(defaults[key] || {}), ...(persisted?.[key] || {}) };
+  }
+  return merged;
+}
 
 function mergeProductCatalog(dbRows, defaults) {
   const byId = new Map();
@@ -584,6 +605,46 @@ app.get("/api/products", async (_req, res) => {
   }
 });
 
+app.get("/api/settings", async (_req, res) => {
+  try {
+    return res.json(mergeSettings(DEFAULT_SETTINGS, await getSiteSettings()));
+  } catch (err) {
+    console.warn("[SETTINGS] read failed, serving defaults:", err.message || err);
+    return res.json(DEFAULT_SETTINGS);
+  }
+});
+
+app.put("/api/admin/settings", requireAdmin, async (req, res) => {
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
+    return error(res, 400, "Settings body is required.");
+  }
+  const arrays = ["heroSlides", "announcementBar"];
+  if (arrays.some((key) => key in incoming && !Array.isArray(incoming[key]))) {
+    return error(res, 400, "heroSlides and announcementBar must be arrays.");
+  }
+  if ("footer" in incoming && (!incoming.footer || typeof incoming.footer !== "object" || Array.isArray(incoming.footer))) {
+    return error(res, 400, "footer must be an object.");
+  }
+  const hasBadUrl = [...(incoming.heroSlides || [])].some((slide) =>
+    !slide || typeof slide.image !== "string" || !slide.image.trim(),
+  );
+  if (hasBadUrl) return error(res, 400, "Each hero slide requires an image URL/path.");
+  if ((incoming.heroSlides || []).some((slide) => typeof slide.alt !== "string")) {
+    return error(res, 400, "Each hero slide requires alt text.");
+  }
+  if ((incoming.announcementBar || []).some((item) => !item || typeof item.text !== "string" || typeof item.glyph !== "string")) {
+    return error(res, 400, "Each announcement requires icon and text.");
+  }
+  try {
+    const saved = await upsertSiteSettings(incoming);
+    return res.json({ status: "success", settings: mergeSettings(DEFAULT_SETTINGS, saved) });
+  } catch (err) {
+    console.error("[ADMIN] save settings failed:", err.message || err);
+    return error(res, 500, "Unable to save settings. Run docs/SITE_SETTINGS.sql if the table is missing.");
+  }
+});
+
 app.get("/api/products/:id", async (req, res) => {
   const id = trimOrEmpty(req.params.id);
   if (!id) return error(res, 400, "Product id is required.");
@@ -630,6 +691,11 @@ app.put("/api/admin/products/:id", requireAdmin, async (req, res) => {
     }
     if (Array.isArray(patch.compareParas)) {
       next.compareParas = patch.compareParas;
+    }
+
+    const contentArrays = ["gallery", "features", "steps", "stories", "benefits", "stats", "miniReviews", "accordions", "faq"];
+    if (patch.content && contentArrays.some((key) => key in patch.content && !Array.isArray(patch.content[key]))) {
+      return error(res, 400, "Product content lists must be arrays.");
     }
 
     const price = Number(next.price);
@@ -723,8 +789,18 @@ async function bootstrapSiteProducts() {
   }
 }
 
+async function bootstrapSiteSettings() {
+  try {
+    const result = await ensureSiteSettings(DEFAULT_SETTINGS);
+    console.log(`[SETTINGS] site_settings ready${result.created ? " (seeded global row)" : " (existing global row preserved)"}`);
+  } catch (err) {
+    console.warn("[SETTINGS]", err.message || err);
+  }
+}
+
 await bootstrapAdminUser();
 await bootstrapSiteProducts();
+await bootstrapSiteSettings();
 
 app.listen(settings.port, settings.host, () => {
   console.log(`Starting Express server on ${settings.host}:${settings.port}`);

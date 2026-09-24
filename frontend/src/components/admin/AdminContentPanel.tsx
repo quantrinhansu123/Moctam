@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { apiGet, apiPut } from "../../lib/api";
 import type { ComparePara, Product } from "../../types/product";
 import { products as fallbackProducts } from "../../data/products";
+import type { SiteSettings } from "../../lib/siteSettings";
 
 interface AdminContentPanelProps {
   token: string;
@@ -26,6 +27,7 @@ type Draft = {
   compareRest0: string;
   compareStrong1: string;
   compareRest1: string;
+  content: Product["content"];
 };
 
 function moneyPreview(value: string) {
@@ -129,6 +131,7 @@ function toDraft(product: Product): Draft {
     compareRest0: paras[0]?.rest || "",
     compareStrong1: paras[1]?.strong || "",
     compareRest1: paras[1]?.rest || "",
+    content: structuredClone(merged.content || emptyContent()),
   };
 }
 
@@ -168,6 +171,8 @@ export function AdminContentPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState("");
+  const [settingsDraft, setSettingsDraft] = useState<SiteSettings | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
 
   const selected = useMemo(
     () => catalog.find((p) => p.id === selectedId) || catalog[0],
@@ -179,6 +184,8 @@ export function AdminContentPanel({
     setError("");
     try {
       const rows = await apiGet<Product[]>("/api/products");
+      const siteSettings = await apiGet<SiteSettings>("/api/settings");
+      setSettingsDraft(siteSettings);
       const next = mergeCatalog(
         Array.isArray(rows) ? rows : [],
         fallbackProducts,
@@ -221,6 +228,20 @@ export function AdminContentPanel({
     setSavedAt("");
   };
 
+  const updateListItem = (key: keyof Product["content"], index: number, field: string, value: string) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const list = [...(prev.content[key] as unknown as Record<string, unknown>[])];
+      list[index] = { ...list[index], [field]: field === "image" && !value ? null : value };
+      return { ...prev, content: { ...prev.content, [key]: list } };
+    });
+    setSavedAt("");
+  };
+  const addListItem = (key: keyof Product["content"], item: Record<string, unknown>) =>
+    setDraft((prev) => prev ? { ...prev, content: { ...prev.content, [key]: [...(prev.content[key] as unknown[]), item] } } : prev);
+  const removeListItem = (key: keyof Product["content"], index: number) =>
+    setDraft((prev) => prev ? { ...prev, content: { ...prev.content, [key]: (prev.content[key] as unknown[]).filter((_, i) => i !== index) } } : prev);
+
   const handleSave = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft || !selected) return;
@@ -260,6 +281,14 @@ export function AdminContentPanel({
         content: {
           ...selected.content,
           gallery,
+          features: draft.content.features,
+          steps: draft.content.steps,
+          stories: draft.content.stories,
+          benefits: draft.content.benefits,
+          stats: draft.content.stats,
+          miniReviews: draft.content.miniReviews,
+          accordions: draft.content.accordions,
+          faq: draft.content.faq,
         },
       };
 
@@ -288,6 +317,34 @@ export function AdminContentPanel({
       setIsSaving(false);
     }
   };
+
+  const saveSettings = async () => {
+    if (!settingsDraft) return;
+    setSettingsSaving(true); setError("");
+    try {
+      const result = await apiPut<{ settings: SiteSettings }>("/api/admin/settings", settingsDraft, { headers: { Authorization: `Bearer ${token}` } });
+      setSettingsDraft(result.settings || settingsDraft); setSavedAt(new Date().toLocaleTimeString());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save settings.";
+      if (/401|403|unauthorized|forbidden|invalid token/i.test(message)) onAuthExpired();
+      else setError(message);
+    }
+    finally { setSettingsSaving(false); }
+  };
+
+  const ListEditor = ({ title, field, fields, blank }: { title: string; field: keyof Product["content"]; fields: [string, string][]; blank: Record<string, unknown> }) => (
+    <section className="admin-content-card">
+      <h2>{title}</h2>
+      {((draft?.content[field] || []) as unknown as Record<string, unknown>[]).map((item, index) => (
+        <div className="admin-list-item" key={`${field}-${index}`}>
+          <strong>{title} {index + 1}</strong>
+          {fields.map(([name, label]) => <label key={name}>{label}<input value={String(item[name] ?? "")} onChange={(e) => updateListItem(field, index, name, e.target.value)} /></label>)}
+          <button className="admin-secondary" type="button" onClick={() => removeListItem(field, index)}>Remove</button>
+        </div>
+      ))}
+      <button className="admin-secondary" type="button" onClick={() => addListItem(field, blank)}>+ Add {title.slice(0, -1)}</button>
+    </section>
+  );
 
   if (isLoading || !draft) {
     return (
@@ -489,10 +546,35 @@ export function AdminContentPanel({
           </div>
         </section>
 
+        <ListEditor title="Features" field="features" fields={[["glyph", "Icon"], ["title", "Title"], ["desc", "Description"]]} blank={{ glyph: "flower", title: "", desc: "" }} />
+        <ListEditor title="Steps" field="steps" fields={[["title", "Title"], ["body", "Description"]]} blank={{ title: "", body: "" }} />
+        <ListEditor title="Stories" field="stories" fields={[["image", "Image URL (optional)"], ["title", "Title"], ["body", "Text"], ["author", "Author"]]} blank={{ image: null, title: "", body: "", author: "" }} />
+        <ListEditor title="Benefits" field="benefits" fields={[["glyph", "Icon"], ["title", "Title"], ["body", "Description"]]} blank={{ glyph: "flower", title: "", body: "" }} />
+        <ListEditor title="Stats" field="stats" fields={[["num", "Number"], ["body", "Description"]]} blank={{ num: "", body: "" }} />
+        <ListEditor title="Mini reviews" field="miniReviews" fields={[["image", "Image URL"], ["quote", "Quote"], ["name", "Name"]]} blank={{ image: "", quote: "", name: "" }} />
+        <ListEditor title="Accordions" field="accordions" fields={[["glyph", "Icon"], ["title", "Title"], ["body", "Text"]]} blank={{ glyph: "ritual", title: "", body: "" }} />
+        <ListEditor title="FAQs" field="faq" fields={[["glyph", "Icon"], ["title", "Question"], ["body", "Answer"]]} blank={{ glyph: "flower", title: "", body: "" }} />
+
         <button type="submit" disabled={isSaving}>
           {isSaving ? "Saving…" : "Save product"}
         </button>
       </form>
+
+      {settingsDraft && <section className="admin-content-card">
+        <h2>Nội dung trang chính</h2>
+        <p className="admin-note">Hero, thông báo và footer hiển thị trực tiếp trên storefront.</p>
+        <h3>Hero slides</h3>
+        {settingsDraft.heroSlides.map((slide, index) => <div className="admin-list-item" key={`slide-${index}`}><label>Image URL<input value={slide.image} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, heroSlides: s.heroSlides.map((x, i) => i === index ? { ...x, image: e.target.value } : x) }))} /></label><label>Alt text<input value={slide.alt} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, heroSlides: s.heroSlides.map((x, i) => i === index ? { ...x, alt: e.target.value } : x) }))} /></label><button type="button" className="admin-secondary" onClick={() => setSettingsDraft((s) => s && ({ ...s, heroSlides: s.heroSlides.filter((_, i) => i !== index) }))}>Remove</button></div>)}
+        <button type="button" className="admin-secondary" onClick={() => setSettingsDraft((s) => s && ({ ...s, heroSlides: [...s.heroSlides, { image: "", alt: "" }] }))}>+ Add slide</button>
+        {(["eyebrow", "title", "description", "actionLabel", "actionHref"] as const).map((key) => <label key={key}>Hero {key}<input value={settingsDraft.hero[key]} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, hero: { ...s.hero, [key]: e.target.value } }))} /></label>)}
+        <h3>Announcement bar</h3>
+        {settingsDraft.announcementBar.map((item, index) => <div className="admin-list-item" key={`announcement-${index}`}><label>Icon<input value={item.glyph} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, announcementBar: s.announcementBar.map((x, i) => i === index ? { ...x, glyph: e.target.value } : x) }))} /></label><label>Text<input value={item.text} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, announcementBar: s.announcementBar.map((x, i) => i === index ? { ...x, text: e.target.value } : x) }))} /></label><label><input type="checkbox" checked={item.enabled !== false} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, announcementBar: s.announcementBar.map((x, i) => i === index ? { ...x, enabled: e.target.checked } : x) }))} /> Enabled</label><button type="button" className="admin-secondary" onClick={() => setSettingsDraft((s) => s && ({ ...s, announcementBar: s.announcementBar.filter((_, i) => i !== index) }))}>Remove</button></div>)}
+        <button type="button" className="admin-secondary" onClick={() => setSettingsDraft((s) => s && ({ ...s, announcementBar: [...s.announcementBar, { glyph: "redeem", text: "", enabled: true }] }))}>+ Add announcement</button>
+        <h3>Footer contact</h3>
+        {(["logo", "brand", "description", "taxId", "address", "hours", "copyright"] as const).map((key) => <label key={key}>Footer {key}<input value={String(settingsDraft.footer[key] || "")} onChange={(e) => setSettingsDraft((s) => s && ({ ...s, footer: { ...s.footer, [key]: e.target.value } }))} /></label>)}
+        {["quickLinks", "careLinks"].map((key) => <div key={key}><h3>Footer {key}</h3>{((settingsDraft.footer[key] || []) as { label: string; target?: string; productId?: string }[]).map((link, index) => <div className="admin-list-item" key={`${key}-${index}`}><label>Label<input value={link.label} onChange={(e) => setSettingsDraft((s) => { if (!s) return s; const links = [...((s.footer[key] || []) as typeof link[])]; links[index] = { ...links[index], label: e.target.value }; return { ...s, footer: { ...s.footer, [key]: links } }; })} /></label><label>Page target<input value={link.target || ""} onChange={(e) => setSettingsDraft((s) => { if (!s) return s; const links = [...((s.footer[key] || []) as typeof link[])]; links[index] = { ...links[index], target: e.target.value, productId: "" }; return { ...s, footer: { ...s.footer, [key]: links } }; })} /></label><label>Product ID (optional)<input value={link.productId || ""} onChange={(e) => setSettingsDraft((s) => { if (!s) return s; const links = [...((s.footer[key] || []) as typeof link[])]; links[index] = { ...links[index], productId: e.target.value }; return { ...s, footer: { ...s.footer, [key]: links } }; })} /></label><button type="button" className="admin-secondary" onClick={() => setSettingsDraft((s) => s && ({ ...s, footer: { ...s.footer, [key]: ((s.footer[key] || []) as unknown[]).filter((_, i) => i !== index) } }))}>Remove</button></div>)}<button type="button" className="admin-secondary" onClick={() => setSettingsDraft((s) => s && ({ ...s, footer: { ...s.footer, [key]: [...((s.footer[key] || []) as unknown[]), { label: "", target: "shop" }] } }))}>+ Add link</button></div>)}
+        <button type="button" onClick={() => void saveSettings()} disabled={settingsSaving}>{settingsSaving ? "Saving…" : "Save site content"}</button>
+      </section>}
     </div>
   );
 }

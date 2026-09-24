@@ -390,3 +390,33 @@ export async function ensureSiteProducts(defaults = []) {
   }
   return { created, total: have.size + created };
 }
+
+export async function getSiteSettings() {
+  const rows = await supabaseFetch(
+    "/rest/v1/site_settings?key=eq.global&select=key,data,updated_at&limit=1",
+  );
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const row = rows[0];
+  return {
+    ...(row.data && typeof row.data === "object" ? row.data : {}),
+    updated_at: row.updated_at,
+  };
+}
+
+export async function upsertSiteSettings(data) {
+  const rows = await supabaseFetch("/rest/v1/site_settings", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ key: "global", data, updated_at: new Date().toISOString() }),
+  });
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  return { ...(row?.data && typeof row.data === "object" ? row.data : data), updated_at: row?.updated_at };
+}
+
+/** Seed exactly once. Existing admin edits always win. */
+export async function ensureSiteSettings(defaults = {}) {
+  const current = await getSiteSettings();
+  if (current) return { created: false, settings: current };
+  const settings = await upsertSiteSettings(defaults);
+  return { created: true, settings };
+}
