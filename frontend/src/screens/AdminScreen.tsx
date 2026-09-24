@@ -113,11 +113,19 @@ export function AdminScreen() {
     return (
       <div className="admin-shell">
         <section className="admin-card" aria-labelledby="admin-login-title">
-          <p className="admin-eyebrow">Mộc Tâm</p>
+          <div className="admin-brand">
+            <img
+              className="admin-logo"
+              src="/assets/images/moc-tam-logo.png"
+              alt="Mộc Tâm"
+              width={96}
+              height={96}
+            />
+          </div>
           <h1 id="admin-login-title">Admin sign in</h1>
           <p className="admin-note">Sign in to view recent orders.</p>
           <form className="admin-form" onSubmit={handleLogin}>
-            <label htmlFor="admin-username">Username</label>
+            <label htmlFor="admin-username">Username or email</label>
             <input
               id="admin-username"
               autoComplete="username"
@@ -151,8 +159,14 @@ export function AdminScreen() {
   return (
     <div className="admin-shell admin-shell--wide">
       <header className="admin-topbar">
-        <div>
-          <p className="admin-eyebrow">Mộc Tâm</p>
+        <div className="admin-topbar-brand">
+          <img
+            className="admin-logo admin-logo--compact"
+            src="/assets/images/moc-tam-logo.png"
+            alt="Mộc Tâm"
+            width={56}
+            height={56}
+          />
           <h1>Orders</h1>
         </div>
         <div className="admin-topbar-actions">

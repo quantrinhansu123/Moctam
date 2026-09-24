@@ -50,7 +50,7 @@ export const settings = {
   senderEmail: env("SENDER_EMAIL", ""),
   resendApiKey: env("RESEND_API_KEY", "") || env("SMTP_PASSWORD", ""),
   paypalWebhookId: env("PAYPAL_WEBHOOK_ID", ""),
-  adminUsername: env("ADMIN_USERNAME", ""),
-  adminPassword: env("ADMIN_PASSWORD", ""),
+  adminUsername: env("ADMIN_USERNAME", "adminmoctam"),
+  adminPassword: env("ADMIN_PASSWORD", "123456"),
   jwtSecret: env("JWT_SECRET", "secret"),
 };

@@ -8,8 +8,11 @@ import {
   createPaypalOrder,
   verifyWebhookSignature,
 } from "./paypal.js";
+import { hashPassword, verifyPassword } from "./password.js";
 import {
   claimEmailSend,
+  ensureAdminUser,
+  findUserByLogin,
   insertFeedback,
   insertOrder,
   listOrders,
@@ -379,31 +382,48 @@ app.post("/api/webhooks/paypal", async (req, res) => {
   }
 });
 
-app.post("/api/admin/login", (req, res) => {
-  if (
-    isPlaceholder(settings.adminUsername) ||
-    isPlaceholder(settings.adminPassword)
-  ) {
-    return error(
-      res,
-      503,
-      "Admin login is not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.",
-    );
-  }
-
+app.post("/api/admin/login", async (req, res) => {
   const username = trimOrEmpty(req.body?.username);
   const password = trimOrEmpty(req.body?.password);
-  if (
-    username !== settings.adminUsername ||
-    password !== settings.adminPassword
-  ) {
-    return error(res, 401, "Invalid username or password.");
+  if (!username || !password) {
+    return error(res, 400, "Username and password are required.");
   }
 
-  return res.json({
-    status: "success",
-    token: signAdminToken(username),
-  });
+  try {
+    const user = await findUserByLogin(username);
+    if (user) {
+      const role = String(user.role || "").toLowerCase();
+      if (role !== "admin") {
+        return error(res, 403, "Account is not an admin.");
+      }
+      if (!verifyPassword(password, user.password_hash)) {
+        return error(res, 401, "Invalid username or password.");
+      }
+      const subject = user.username || user.email || user.id;
+      return res.json({
+        status: "success",
+        token: signAdminToken(String(subject)),
+      });
+    }
+
+    // Fallback: env credentials (before users table is seeded / SQL applied).
+    if (
+      !isPlaceholder(settings.adminUsername) &&
+      !isPlaceholder(settings.adminPassword) &&
+      username === settings.adminUsername &&
+      password === settings.adminPassword
+    ) {
+      return res.json({
+        status: "success",
+        token: signAdminToken(username),
+      });
+    }
+
+    return error(res, 401, "Invalid username or password.");
+  } catch (err) {
+    console.error("[ADMIN] login failed:", err.message || err);
+    return error(res, 500, "Unable to sign in right now.");
+  }
 });
 
 app.get("/api/admin/orders", requireAdmin, async (_req, res) => {
@@ -424,14 +444,45 @@ if (emailEnabled()) {
   );
 }
 
-if (
-  isPlaceholder(settings.adminUsername) ||
-  isPlaceholder(settings.adminPassword)
-) {
-  console.log("[ADMIN] ADMIN_USERNAME / ADMIN_PASSWORD not set — login disabled");
-} else {
-  console.log(`[ADMIN] admin login enabled for user '${settings.adminUsername}'`);
+async function bootstrapAdminUser() {
+  if (
+    isPlaceholder(settings.adminUsername) ||
+    isPlaceholder(settings.adminPassword)
+  ) {
+    console.log(
+      "[ADMIN] skip users seed — set ADMIN_USERNAME / ADMIN_PASSWORD to seed default admin",
+    );
+    return;
+  }
+
+  try {
+    const result = await ensureAdminUser({
+      username: settings.adminUsername,
+      password: settings.adminPassword,
+      hashPassword,
+    });
+    if (result.created) {
+      console.log(
+        `[ADMIN] seeded users row '${settings.adminUsername}' (role=Admin)`,
+      );
+    } else if (result.promoted) {
+      console.log(
+        `[ADMIN] promoted '${settings.adminUsername}' to Admin in users`,
+      );
+    } else {
+      console.log(
+        `[ADMIN] users login ready for '${settings.adminUsername}'`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[ADMIN] could not seed/read users table — run docs/USERS_TABLE.sql. Env login still works.",
+      err.message || err,
+    );
+  }
 }
+
+await bootstrapAdminUser();
 
 app.listen(settings.port, settings.host, () => {
   console.log(`Starting Express server on ${settings.host}:${settings.port}`);

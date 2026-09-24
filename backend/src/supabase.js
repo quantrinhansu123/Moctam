@@ -146,3 +146,74 @@ export async function listOrders(limit = 100) {
     `/rest/v1/orders?select=${columns}&order=created_at.desc&limit=${safeLimit}`,
   );
 }
+
+const USER_COLUMNS = "id,username,email,password_hash,role";
+
+/** Find a user by username or email (case-insensitive exact match). */
+export async function findUserByLogin(login) {
+  const value = String(login || "").trim();
+  if (!value) return null;
+
+  const lower = value.toLowerCase();
+
+  for (const column of ["username", "email"]) {
+    try {
+      const rows = await supabaseFetch(
+        `/rest/v1/users?${column}=ilike.${encodeURIComponent(value)}&select=${USER_COLUMNS}&limit=5`,
+      );
+      if (!Array.isArray(rows) || !rows.length) continue;
+      const exact = rows.find(
+        (row) => String(row[column] || "").toLowerCase() === lower,
+      );
+      if (exact) return exact;
+    } catch (error) {
+      console.warn(`[USERS] ${column} lookup failed:`, error.message || error);
+    }
+  }
+  return null;
+}
+
+export async function createUser({ username, email, password_hash, role }) {
+  const body = {
+    username: username || null,
+    email: email || null,
+    password_hash,
+    role: role || "Buyer",
+  };
+  const rows = await supabaseFetch("/rest/v1/users", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
+export async function ensureAdminUser({ username, password, hashPassword }) {
+  const existing = await findUserByLogin(username);
+  if (existing) {
+    const role = String(existing.role || "").toLowerCase();
+    if (role === "admin") return { created: false, user: existing };
+    // Promote existing row if same username but not Admin yet.
+    const rows = await supabaseFetch(
+      `/rest/v1/users?id=eq.${encodeURIComponent(existing.id)}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({
+          role: "Admin",
+          password_hash: existing.password_hash || hashPassword(password),
+          updated_at: new Date().toISOString(),
+        }),
+      },
+    );
+    return { created: false, promoted: true, user: Array.isArray(rows) ? rows[0] : existing };
+  }
+
+  const user = await createUser({
+    username,
+    email: `${username}@moctam.local`,
+    password_hash: hashPassword(password),
+    role: "Admin",
+  });
+  return { created: true, user };
+}
