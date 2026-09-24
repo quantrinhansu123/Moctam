@@ -321,9 +321,10 @@ pub async fn create_manual_order(
         }
         Err(error) => {
             eprintln!("[ORDERS] failed to store MANUAL order {order_id}: {error}");
+            // Surface Supabase/PostgREST detail so the UI (and Render logs) show the real cause.
             error_response(
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Unable to save order right now.",
+                format!("Unable to save order: {error}"),
             )
         }
     }

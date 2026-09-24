@@ -26,6 +26,10 @@ pub struct Settings {
     // --- PayPal webhooks ---
     /// May be empty or a placeholder — webhook verification degrades to a mock.
     pub paypal_webhook_id: String,
+    // --- Admin panel ---
+    pub admin_username: String,
+    pub admin_password: String,
+    pub jwt_secret: String,
 }
 
 /// True when an env value is missing or still an untouched placeholder such as
@@ -74,6 +78,9 @@ impl Settings {
             sender_email: env::var("SENDER_EMAIL").unwrap_or_default(),
             resend_api_key: env::var("RESEND_API_KEY").unwrap_or_default(),
             paypal_webhook_id: env::var("PAYPAL_WEBHOOK_ID").unwrap_or_default(),
+            admin_username: env::var("ADMIN_USERNAME").unwrap_or_default(),
+            admin_password: env::var("ADMIN_PASSWORD").unwrap_or_default(),
+            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_owned()),
         }
     }
 }

@@ -9,6 +9,7 @@ import { SiteHeader } from "./components/SiteHeader";
 import { findProduct } from "./data/products";
 import type { NavKey } from "./data/navigation";
 import { useReveal } from "./hooks/useReveal";
+import { AdminScreen } from "./screens/AdminScreen";
 import { ContactScreen } from "./screens/ContactScreen";
 import { HowItWorksScreen } from "./screens/HowItWorksScreen";
 import { ProductScreen } from "./screens/ProductScreen";
@@ -26,7 +27,12 @@ const TITLES: Record<string, string> = {
   product: "Four-Herb Raspberry Leaf Tea",
 };
 
+function isAdminHash(hash = window.location.hash) {
+  return hash === "#/admin" || hash === "#admin";
+}
+
 function App() {
+  const [isAdmin, setIsAdmin] = useState(() => isAdminHash());
   const [route, setRoute] = useState<Route>({ page: "shop" });
   const [cart, setCart] = useState<CartLine[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -35,6 +41,44 @@ function App() {
 
   const activeNav: NavKey | null = route.page === "product" ? null : route.page;
   const product = route.page === "product" ? findProduct(route.productId) : undefined;
+
+  useEffect(() => {
+    const syncHash = () => setIsAdmin(isAdminHash());
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
+
+  /* Template behavior: lock body scroll behind open drawers. */
+  useEffect(() => {
+    document.body.classList.toggle("drawer-open", menuOpen || cartOpen);
+  }, [menuOpen, cartOpen]);
+
+  /* Per-page <title> and body[data-page] (the template styles the track scrollbar). */
+  useEffect(() => {
+    if (isAdmin) return;
+    document.body.dataset.page = route.page;
+    document.title = TITLES[route.page];
+  }, [route, isAdmin]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setCartOpen(false);
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useReveal(
+    isAdmin ? "admin" : route.page === "product" ? route.productId : route.page,
+  );
+
+  if (isAdmin) {
+    return <AdminScreen />;
+  }
 
   const navigate = (page: NavKey) => {
     setRoute({ page });
@@ -73,31 +117,6 @@ function App() {
 
   const removeLine = (key: string) =>
     setCart((current) => current.filter((item) => item.key !== key));
-
-  /* Template behavior: lock body scroll behind open drawers. */
-  useEffect(() => {
-    document.body.classList.toggle("drawer-open", menuOpen || cartOpen);
-  }, [menuOpen, cartOpen]);
-
-  /* Per-page <title> and body[data-page] (the template styles the track scrollbar). */
-  useEffect(() => {
-    document.body.dataset.page = route.page;
-    document.title = TITLES[route.page];
-  }, [route]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-        setCartOpen(false);
-        setSearchOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  useReveal(route.page === "product" ? route.productId : route.page);
 
   const mainClass =
     route.page === "how" || route.page === "contact" || route.page === "track"

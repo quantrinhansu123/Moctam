@@ -3,7 +3,7 @@
 // Reads VITE_API_URL from frontend/.env
 // =============================================================
 
-const PRODUCTION_API_URL = "https://moc-tam-2.onrender.com";
+const PRODUCTION_API_URL = "https://moctam.onrender.com";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const rawBaseUrl = import.meta.env.VITE_API_URL;
@@ -59,21 +59,43 @@ export async function apiPost<T>(
   init: RequestInit = {},
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
+  return apiRequest<T>(path, {
+    ...init,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...extraHeaders(init) },
+    body: JSON.stringify(body),
+  }, timeoutMs);
+}
+
+/** GET JSON from the backend (optional Authorization via init.headers). */
+export async function apiGet<T>(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  return apiRequest<T>(path, {
+    ...init,
+    method: "GET",
+    headers: { ...extraHeaders(init) },
+  }, timeoutMs);
+}
+
+async function apiRequest<T>(
+  path: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<T> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(apiUrl(path), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...extraHeaders(init) },
-      body: JSON.stringify(body),
       ...init,
       signal: controller.signal,
     });
 
     const text = await response.text();
 
-    // Tolerate non-JSON bodies (e.g. plain-text 500s) — never throw from parse.
     let data: T | null = null;
     if (text) {
       try {

@@ -28,7 +28,7 @@ pub struct FeedbackRow {
 }
 
 /// A row of the `orders` table (see docs/ORDERS_TABLE.sql).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrderInsert {
     pub paypal_order_id: String,
     pub customer_email: String,
@@ -43,21 +43,41 @@ pub struct OrderInsert {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OrderRow {
     pub paypal_order_id: String,
     pub customer_email: String,
+    #[serde(default)]
+    pub customer_name: Option<String>,
+    #[serde(default)]
+    pub customer_phone: Option<String>,
+    #[serde(default)]
+    pub customer_address: Option<String>,
     pub total_amount: f64,
     pub currency: Option<String>,
     pub status: Option<String>,
     pub email_sent: Option<bool>,
+    #[serde(default)]
+    pub created_at: Option<String>,
 }
 
 /// Columns needed by the email dispatch flow.
 const ORDER_COLUMNS: &str = "paypal_order_id,customer_email,total_amount,currency,status,email_sent";
 
+/// Columns for the admin order list.
+const ADMIN_ORDER_COLUMNS: &str = "paypal_order_id,customer_email,customer_name,customer_phone,customer_address,total_amount,currency,status,email_sent,created_at";
+
 fn now_timestamp() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+fn looks_like_missing_contact_column(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("customer_name")
+        || lower.contains("customer_phone")
+        || lower.contains("customer_address")
+        || lower.contains("pgrst204")
+        || lower.contains("could not find")
 }
 
 impl SupabaseClient {
@@ -129,6 +149,25 @@ impl SupabaseClient {
     /// Store the initial PENDING order that links the customer email to the
     /// PayPal order id.
     pub async fn insert_order(&self, row: &OrderInsert) -> Result<(), String> {
+        match self.insert_order_once(row).await {
+            Ok(()) => Ok(()),
+            Err(error) if looks_like_missing_contact_column(&error) => {
+                eprintln!(
+                    "[ORDERS] contact columns missing — retrying insert without name/phone/address: {error}"
+                );
+                let fallback = OrderInsert {
+                    customer_name: None,
+                    customer_phone: None,
+                    customer_address: None,
+                    ..row.clone()
+                };
+                self.insert_order_once(&fallback).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn insert_order_once(&self, row: &OrderInsert) -> Result<(), String> {
         let url = format!("{}/rest/v1/orders", self.base_url);
 
         let response = self
@@ -223,5 +262,33 @@ impl SupabaseClient {
             .map_err(|error| format!("Failed to parse Supabase response: {error}"))?;
 
         Ok(rows.into_iter().next())
+    }
+
+    /// List recent orders for the admin panel (newest first).
+    pub async fn list_orders(&self, limit: u32) -> Result<Vec<OrderRow>, String> {
+        let limit = limit.clamp(1, 200);
+        let url = format!(
+            "{}/rest/v1/orders?select={}&order=created_at.desc&limit={}",
+            self.base_url, ADMIN_ORDER_COLUMNS, limit
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.key)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to reach Supabase: {error}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Supabase list orders failed ({status}): {error_text}"));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|error| format!("Failed to parse Supabase response: {error}"))
     }
 }

@@ -23,3 +23,12 @@ CREATE INDEX IF NOT EXISTS idx_orders_paypal_id ON orders(paypal_order_id);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(120);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(40);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT;
+
+-- After ALTER, reload PostgREST schema cache (Supabase SQL Editor):
+NOTIFY pgrst, 'reload schema';
+
+-- Verify columns exist:
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'orders'
+ORDER BY ordinal_position;

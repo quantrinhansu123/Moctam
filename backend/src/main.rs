@@ -3,7 +3,8 @@
 // =============================================================
 use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, web};
-use backend::config::Settings;
+use backend::admin::{admin_login, list_admin_orders};
+use backend::config::{Settings, is_placeholder};
 use backend::feedback::create_feedback;
 use backend::paypal_client::PayPalClient;
 use backend::services::email::EmailConfig;
@@ -52,6 +53,14 @@ async fn main() -> Result<(), std::io::Error> {
     // 5. Settings as app data (webhook verification reads PAYPAL_WEBHOOK_ID).
     let settings_data = web::Data::new(settings.clone());
 
+    if is_placeholder(&settings.admin_username) || is_placeholder(&settings.admin_password) {
+        println!(
+            "[ADMIN] ADMIN_USERNAME / ADMIN_PASSWORD not set — /api/admin/login disabled"
+        );
+    } else {
+        println!("[ADMIN] admin login enabled for user '{}'", settings.admin_username);
+    }
+
     println!("Starting Actix-web server on {}:{}", host, port);
 
     // 6. Configure HTTP Server
@@ -66,6 +75,8 @@ async fn main() -> Result<(), std::io::Error> {
             .app_data(settings_data.clone())
             // Register routes
             .service(check_root)
+            .service(admin_login)
+            .service(list_admin_orders)
             .service(create_manual_order)
             .service(create_paypal_order)
             .service(capture_paypal_order)
