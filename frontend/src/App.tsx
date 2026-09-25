@@ -34,8 +34,11 @@ function isAdminHash(hash = window.location.hash) {
 }
 
 function App() {
-  const { findProduct: findCatalogProduct, reload: reloadProducts } =
-    useProductCatalog();
+  const {
+    products,
+    findProduct: findCatalogProduct,
+    reload: reloadProducts,
+  } = useProductCatalog();
   const { reload: reloadSiteSettings } = useSiteSettings();
   const [isAdmin, setIsAdmin] = useState(() => isAdminHash());
   const [route, setRoute] = useState<Route>({ page: "shop" });
@@ -64,6 +67,38 @@ function App() {
     window.addEventListener("hashchange", syncHash);
     return () => window.removeEventListener("hashchange", syncHash);
   }, [reloadProducts, reloadSiteSettings]);
+
+  // Keep cart line prices in sync when admin updates the catalog.
+  useEffect(() => {
+    if (!products.length) return;
+    setCart((current) => {
+      let changed = false;
+      const next = current.map((line) => {
+        const catalogItem = products.find((item) => item.id === line.productId);
+        if (!catalogItem) return line;
+        const isTwoBox = /2\s*box/i.test(line.tag);
+        const price = isTwoBox ? catalogItem.twoBoxPrice : catalogItem.price;
+        const regular = isTwoBox ? catalogItem.price * 2 : catalogItem.price;
+        if (
+          line.price === price &&
+          line.regular === regular &&
+          line.name === catalogItem.name &&
+          line.image === catalogItem.cardImage
+        ) {
+          return line;
+        }
+        changed = true;
+        return {
+          ...line,
+          name: catalogItem.name,
+          image: catalogItem.cardImage,
+          price,
+          regular,
+        };
+      });
+      return changed ? next : current;
+    });
+  }, [products]);
 
   /* Template behavior: lock body scroll behind open drawers. */
   useEffect(() => {

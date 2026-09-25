@@ -20,17 +20,38 @@ interface ProductCatalogValue {
 
 const ProductCatalogContext = createContext<ProductCatalogValue | null>(null);
 
+function coerceProduct(product: Product, fallback?: Product): Product {
+  const base = fallback || product;
+  const price = Number(product.price);
+  const twoBoxPrice = Number(product.twoBoxPrice);
+  const rating = Number(product.rating);
+  const reviews = Number(product.reviews);
+  return {
+    ...base,
+    ...product,
+    id: product.id || base.id,
+    name: String(product.name || base.name || product.id || ""),
+    price: Number.isFinite(price) && price > 0 ? price : Number(base.price) || 1,
+    twoBoxPrice:
+      Number.isFinite(twoBoxPrice) && twoBoxPrice > 0
+        ? twoBoxPrice
+        : Number(base.twoBoxPrice) || 2,
+    rating: Number.isFinite(rating) ? rating : Number(base.rating) || 0,
+    reviews: Number.isFinite(reviews) ? reviews : Number(base.reviews) || 0,
+  };
+}
+
 function normalizeProducts(rows: unknown): Product[] {
   const byId = new Map<string, Product>();
   for (const product of fallbackProducts) {
-    byId.set(product.id, product);
+    byId.set(product.id, coerceProduct(product));
   }
   if (Array.isArray(rows)) {
     for (const row of rows) {
       if (!row || typeof row !== "object" || !("id" in row)) continue;
       const product = row as Product;
       const prev = byId.get(product.id);
-      byId.set(product.id, prev ? { ...prev, ...product, id: product.id } : product);
+      byId.set(product.id, coerceProduct(product, prev));
     }
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));

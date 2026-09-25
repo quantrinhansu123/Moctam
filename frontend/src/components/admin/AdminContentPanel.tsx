@@ -641,7 +641,7 @@ export function AdminContentPanel({
       {savedAt && (
         <p className="admin-save-ok">
           Đã lưu{savedSection ? ` “${savedSection}”` : ""} lúc {savedAt}.
-          Trang bán sẽ lấy bản mới qua API.
+          Giá/nội dung trên trang bán đã cập nhật — bấm “Về trang bán” để xem.
         </p>
       )}
 

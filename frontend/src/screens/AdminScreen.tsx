@@ -288,6 +288,18 @@ export function AdminScreen() {
           <h1>Đơn hàng</h1>
         </div>
         <div className="admin-topbar-actions">
+          <a
+            className="admin-secondary"
+            href="/"
+            onClick={(event) => {
+              if (window.location.hash) {
+                event.preventDefault();
+                window.location.hash = "";
+              }
+            }}
+          >
+            Về trang bán
+          </a>
           <button
             type="button"
             className="admin-secondary"

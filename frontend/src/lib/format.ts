@@ -1,5 +1,9 @@
 /** Money like the template: $29.99 */
-export const money = (value: number) => `$${value.toFixed(2)}`;
+export const money = (value: number | string) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "$0.00";
+  return `$${amount.toFixed(2)}`;
+};
 
 /** Date like the template's delivery line: "Sep 25" */
 export const shortDate = (date: Date) =>
