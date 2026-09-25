@@ -265,7 +265,7 @@ export function AdminDashboardChrome({
           className={`dash-tab${tab === "feedback" ? " is-active" : ""}`}
           onClick={() => onTabChange("feedback")}
         >
-          Feedback
+          Góp ý
         </button>
         {showContentTab && (
           <button

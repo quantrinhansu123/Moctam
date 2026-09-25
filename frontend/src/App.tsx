@@ -10,6 +10,7 @@ import { findProduct } from "./data/products";
 import type { NavKey } from "./data/navigation";
 import { useReveal } from "./hooks/useReveal";
 import { useProductCatalog } from "./products/ProductProvider";
+import { useSiteSettings } from "./lib/siteSettings";
 import { AdminScreen } from "./screens/AdminScreen";
 import { ContactScreen } from "./screens/ContactScreen";
 import { HowItWorksScreen } from "./screens/HowItWorksScreen";
@@ -33,7 +34,9 @@ function isAdminHash(hash = window.location.hash) {
 }
 
 function App() {
-  const { findProduct: findCatalogProduct } = useProductCatalog();
+  const { findProduct: findCatalogProduct, reload: reloadProducts } =
+    useProductCatalog();
+  const { reload: reloadSiteSettings } = useSiteSettings();
   const [isAdmin, setIsAdmin] = useState(() => isAdminHash());
   const [route, setRoute] = useState<Route>({ page: "shop" });
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -48,10 +51,19 @@ function App() {
       : undefined;
 
   useEffect(() => {
-    const syncHash = () => setIsAdmin(isAdminHash());
+    const syncHash = () => {
+      const nextAdmin = isAdminHash();
+      setIsAdmin((wasAdmin) => {
+        if (wasAdmin && !nextAdmin) {
+          void reloadProducts();
+          void reloadSiteSettings();
+        }
+        return nextAdmin;
+      });
+    };
     window.addEventListener("hashchange", syncHash);
     return () => window.removeEventListener("hashchange", syncHash);
-  }, []);
+  }, [reloadProducts, reloadSiteSettings]);
 
   /* Template behavior: lock body scroll behind open drawers. */
   useEffect(() => {

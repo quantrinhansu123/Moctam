@@ -336,7 +336,7 @@ export function FeedbackCharts({
     <div className="dash-view">
       <div className="dash-metric-grid">
         <MetricCard
-          title="TỔNG FEEDBACK"
+          title="TỔNG GÓP Ý"
           value={String(feedbacks.length)}
           icon={<IconFeedback />}
         />
@@ -365,7 +365,7 @@ export function FeedbackCharts({
         <DailyPanel points={daily} />
       </div>
 
-      <h2 className="admin-section-title">Feedback gần đây</h2>
+      <h2 className="admin-section-title">Góp ý gần đây</h2>
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -378,7 +378,7 @@ export function FeedbackCharts({
           <tbody>
             {feedbacks.length === 0 && !isLoading ? (
               <tr>
-                <td colSpan={3}>Chưa có feedback.</td>
+                <td colSpan={3}>Chưa có góp ý.</td>
               </tr>
             ) : (
               feedbacks.slice(0, 50).map((row) => (

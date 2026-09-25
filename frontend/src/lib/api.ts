@@ -73,7 +73,10 @@ export async function apiGet<T>(
   init: RequestInit = {},
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  return apiRequest<T>(path, {
+  // Bust intermediary/browser caches for CMS reads after admin saves.
+  const sep = path.includes("?") ? "&" : "?";
+  const bustPath = `${path}${sep}_ts=${Date.now()}`;
+  return apiRequest<T>(bustPath, {
     ...init,
     method: "GET",
     headers: { ...extraHeaders(init) },
@@ -106,7 +109,13 @@ async function apiRequest<T>(
   try {
     const response = await fetch(apiUrl(path), {
       ...init,
+      cache: "no-store",
       signal: controller.signal,
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+        ...extraHeaders(init),
+      },
     });
 
     const text = await response.text();

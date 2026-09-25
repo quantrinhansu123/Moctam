@@ -96,6 +96,12 @@ function mergeProductCatalog(dbRows, defaults) {
 
 const app = express();
 app.use(cors());
+app.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -636,12 +642,32 @@ app.put("/api/admin/settings", requireAdmin, async (req, res) => {
   if ((incoming.announcementBar || []).some((item) => !item || typeof item.text !== "string" || typeof item.glyph !== "string")) {
     return error(res, 400, "Each announcement requires icon and text.");
   }
+  // Normalize empty glyph to a safe default so UI clears don't block save.
+  if (Array.isArray(incoming.announcementBar)) {
+    incoming.announcementBar = incoming.announcementBar.map((item) => ({
+      ...item,
+      glyph: String(item.glyph || "campaign").trim() || "campaign",
+      text: String(item.text || "").trim(),
+      enabled: item.enabled !== false,
+    }));
+  }
+  if (Array.isArray(incoming.heroSlides)) {
+    incoming.heroSlides = incoming.heroSlides.map((slide) => ({
+      ...slide,
+      image: String(slide.image || "").trim(),
+      alt: String(slide.alt ?? ""),
+    }));
+  }
   try {
     const saved = await upsertSiteSettings(incoming);
     return res.json({ status: "success", settings: mergeSettings(DEFAULT_SETTINGS, saved) });
   } catch (err) {
     console.error("[ADMIN] save settings failed:", err.message || err);
-    return error(res, 500, "Unable to save settings. Run docs/SITE_SETTINGS.sql if the table is missing.");
+    return error(
+      res,
+      500,
+      `Unable to save settings: ${String(err.message || err).slice(0, 180)}`,
+    );
   }
 });
 
@@ -723,7 +749,7 @@ app.put("/api/admin/products/:id", requireAdmin, async (req, res) => {
     return error(
       res,
       500,
-      "Unable to save product. Run docs/SITE_PRODUCTS.sql if the table is missing.",
+      `Unable to save product: ${String(err.message || err).slice(0, 180)}`,
     );
   }
 });

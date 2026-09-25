@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGet } from "./api";
 
 export type SiteSettings = {
@@ -26,14 +26,21 @@ function normalizeSettings(value: unknown): SiteSettings {
 export function SiteSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<SiteSettings>(fallback);
   const [isLoading, setIsLoading] = useState(true);
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setIsLoading(true);
-    try { setSettings(normalizeSettings(await apiGet<unknown>("/api/settings"))); }
-    catch (error) { console.warn("[settings] unable to load:", error); }
-    finally { setIsLoading(false); }
-  };
-  useEffect(() => { void reload(); }, []);
-  const value = useMemo(() => ({ settings, isLoading, reload }), [settings, isLoading]);
+    try {
+      setSettings(normalizeSettings(await apiGet<unknown>("/api/settings")));
+    } catch (error) {
+      console.warn("[settings] refresh failed, keeping current settings:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+  const value = useMemo(
+    () => ({ settings, isLoading, reload }),
+    [settings, isLoading, reload],
+  );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

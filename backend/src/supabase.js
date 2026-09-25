@@ -356,19 +356,76 @@ export async function upsertSiteProduct(id, data) {
     data,
     updated_at: new Date().toISOString(),
   };
-  const rows = await supabaseFetch("/rest/v1/site_products", {
-    method: "POST",
-    headers: {
-      Prefer: "resolution=merge-duplicates,return=representation",
-    },
-    body: JSON.stringify(payload),
-  });
-  const row = Array.isArray(rows) ? rows[0] : rows;
-  return {
-    ...(row?.data && typeof row.data === "object" ? row.data : data),
+
+  const asProduct = (row, fallback) => ({
+    ...(row?.data && typeof row.data === "object" ? row.data : fallback),
     id: row?.id || id,
-    updated_at: row?.updated_at,
-  };
+    updated_at: row?.updated_at || payload.updated_at,
+  });
+
+  // Prefer PATCH when the row already exists so JSONB `data` is fully replaced
+  // (avoids upsert/merge quirks that can look like "reload lost my edits").
+  try {
+    const existing = await getSiteProduct(id);
+    if (existing) {
+      const rows = await supabaseFetch(
+        `/rest/v1/site_products?id=eq.${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({
+            data,
+            updated_at: payload.updated_at,
+          }),
+        },
+      );
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      if (row) return asProduct(row, data);
+    }
+  } catch {
+    // Fall through to upsert below.
+  }
+
+  try {
+    const rows = await supabaseFetch(
+      "/rest/v1/site_products?on_conflict=id",
+      {
+        method: "POST",
+        headers: {
+          Prefer: "resolution=merge-duplicates,return=representation",
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    return asProduct(row, data);
+  } catch (error) {
+    const message = String(error.message || error);
+    if (!/23505|duplicate key|conflict/i.test(message)) throw error;
+
+    const rows = await supabaseFetch(
+      `/rest/v1/site_products?id=eq.${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({
+          data,
+          updated_at: payload.updated_at,
+        }),
+      },
+    );
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row) {
+      const created = await supabaseFetch("/rest/v1/site_products", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(payload),
+      });
+      const createdRow = Array.isArray(created) ? created[0] : created;
+      return asProduct(createdRow, data);
+    }
+    return asProduct(row, data);
+  }
 }
 
 export async function ensureSiteProducts(defaults = []) {
@@ -404,13 +461,79 @@ export async function getSiteSettings() {
 }
 
 export async function upsertSiteSettings(data) {
-  const rows = await supabaseFetch("/rest/v1/site_settings", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify({ key: "global", data, updated_at: new Date().toISOString() }),
+  const payload = {
+    key: "global",
+    data,
+    updated_at: new Date().toISOString(),
+  };
+
+  const asSettings = (row, fallback) => ({
+    ...(row?.data && typeof row.data === "object" ? row.data : fallback),
+    updated_at: row?.updated_at || payload.updated_at,
   });
-  const row = Array.isArray(rows) ? rows[0] : rows;
-  return { ...(row?.data && typeof row.data === "object" ? row.data : data), updated_at: row?.updated_at };
+
+  try {
+    const current = await getSiteSettings();
+    if (current) {
+      const rows = await supabaseFetch(
+        "/rest/v1/site_settings?key=eq.global",
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({
+            data,
+            updated_at: payload.updated_at,
+          }),
+        },
+      );
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      if (row) return asSettings(row, data);
+    }
+  } catch {
+    // Fall through to upsert below.
+  }
+
+  try {
+    const rows = await supabaseFetch(
+      "/rest/v1/site_settings?on_conflict=key",
+      {
+        method: "POST",
+        headers: {
+          Prefer: "resolution=merge-duplicates,return=representation",
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    return asSettings(row, data);
+  } catch (error) {
+    // Fallback when PostgREST upsert is unavailable (e.g. missing on_conflict).
+    const message = String(error.message || error);
+    if (!/23505|duplicate key|conflict/i.test(message)) throw error;
+
+    const rows = await supabaseFetch(
+      "/rest/v1/site_settings?key=eq.global",
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({
+          data,
+          updated_at: payload.updated_at,
+        }),
+      },
+    );
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row) {
+      const created = await supabaseFetch("/rest/v1/site_settings", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(payload),
+      });
+      const createdRow = Array.isArray(created) ? created[0] : created;
+      return asSettings(createdRow, data);
+    }
+    return asSettings(row, data);
+  }
 }
 
 /** Seed exactly once. Existing admin edits always win. */

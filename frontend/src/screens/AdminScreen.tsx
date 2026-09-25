@@ -103,7 +103,7 @@ export function AdminScreen() {
         error instanceof Error ? error.message : "Unable to load feedbacks.";
       if (/401|403|unauthorized|forbidden|invalid token/i.test(message)) {
         logout();
-        setLoginError("Session expired. Please sign in again.");
+        setLoginError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
       } else {
         setFeedbacksError(message);
       }
@@ -130,7 +130,7 @@ export function AdminScreen() {
         error instanceof Error ? error.message : "Unable to load orders.";
       if (/401|403|unauthorized|forbidden|invalid token/i.test(message)) {
         logout();
-        setLoginError("Session expired. Please sign in again.");
+        setLoginError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
       } else {
         setOrdersError(message);
       }
@@ -167,7 +167,7 @@ export function AdminScreen() {
         { username: username.trim(), password },
       );
       if (!result.token) {
-        throw new Error("Login succeeded but no token was returned.");
+        throw new Error("Đăng nhập thành công nhưng không nhận được token.");
       }
       localStorage.setItem(TOKEN_KEY, result.token);
       setToken(result.token);
@@ -218,7 +218,7 @@ export function AdminScreen() {
         error instanceof Error ? error.message : "Unable to delete orders.";
       if (/401|403|unauthorized|forbidden|invalid token/i.test(message)) {
         logout();
-        setLoginError("Session expired. Please sign in again.");
+        setLoginError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
       } else {
         setOrdersError(message);
       }
@@ -240,10 +240,10 @@ export function AdminScreen() {
               height={96}
             />
           </div>
-          <h1 id="admin-login-title">Admin sign in</h1>
-          <p className="admin-note">Sign in to view recent orders.</p>
+          <h1 id="admin-login-title">Đăng nhập Admin</h1>
+          <p className="admin-note">Đăng nhập để xem đơn hàng gần đây.</p>
           <form className="admin-form" onSubmit={handleLogin}>
-            <label htmlFor="admin-username">Username or email</label>
+            <label htmlFor="admin-username">Tên đăng nhập hoặc email</label>
             <input
               id="admin-username"
               autoComplete="username"
@@ -251,7 +251,7 @@ export function AdminScreen() {
               onChange={(event) => setUsername(event.target.value)}
               required
             />
-            <label htmlFor="admin-password">Password</label>
+            <label htmlFor="admin-password">Mật khẩu</label>
             <input
               id="admin-password"
               type="password"
@@ -266,7 +266,7 @@ export function AdminScreen() {
               </p>
             )}
             <button type="submit" disabled={isLoggingIn}>
-              {isLoggingIn ? "Signing in…" : "Sign in"}
+              {isLoggingIn ? "Đang đăng nhập…" : "Đăng nhập"}
             </button>
           </form>
         </section>
@@ -285,7 +285,7 @@ export function AdminScreen() {
             width={56}
             height={56}
           />
-          <h1>Orders</h1>
+          <h1>Đơn hàng</h1>
         </div>
         <div className="admin-topbar-actions">
           <button
@@ -303,11 +303,11 @@ export function AdminScreen() {
             }
           >
             {(tab === "feedback" ? isLoadingFeedbacks : isLoadingOrders)
-              ? "Refreshing…"
-              : "Refresh"}
+              ? "Đang tải…"
+              : "Tải lại"}
           </button>
           <button type="button" className="admin-secondary" onClick={logout}>
-            Log out
+            Đăng xuất
           </button>
         </div>
       </header>
@@ -334,7 +334,7 @@ export function AdminScreen() {
         <>
           <OrderOverviewCharts orders={orders} />
           <div className="admin-section-bar">
-            <h2 className="admin-section-title">Order records</h2>
+            <h2 className="admin-section-title">Danh sách đơn hàng</h2>
             <button
               type="button"
               className="admin-danger"
@@ -342,7 +342,7 @@ export function AdminScreen() {
               onClick={() => void handleDeleteSelected()}
             >
               {isDeleting
-                ? "Deleting…"
+                ? "Đang xóa…"
                 : selectedCount
                   ? `Xóa đã chọn (${selectedCount})`
                   : "Xóa đã chọn"}
@@ -364,21 +364,21 @@ export function AdminScreen() {
                       disabled={!orders.length}
                     />
                   </th>
-                  <th>Created</th>
-                  <th>Products</th>
-                  <th>Name</th>
+                  <th>Thời gian</th>
+                  <th>Sản phẩm</th>
+                  <th>Tên</th>
                   <th>Email</th>
-                  <th>Phone</th>
-                  <th>Address</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Order ID</th>
+                  <th>Điện thoại</th>
+                  <th>Địa chỉ</th>
+                  <th>Số tiền</th>
+                  <th>Trạng thái</th>
+                  <th>Mã đơn</th>
                 </tr>
               </thead>
               <tbody>
                 {orders.length === 0 && !isLoadingOrders ? (
                   <tr>
-                    <td colSpan={10}>No orders yet.</td>
+                    <td colSpan={10}>Chưa có đơn hàng.</td>
                   </tr>
                 ) : (
                   orders.map((order) => (
@@ -436,7 +436,7 @@ export function AdminScreen() {
           token={token}
           onAuthExpired={() => {
             logout();
-            setLoginError("Session expired. Please sign in again.");
+            setLoginError("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
           }}
         />
       )}

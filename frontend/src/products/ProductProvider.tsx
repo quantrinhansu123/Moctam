@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -39,22 +40,23 @@ export function ProductProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [isLoading, setIsLoading] = useState(true);
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setIsLoading(true);
     try {
       const rows = await apiGet<Product[]>("/api/products");
       setProducts(normalizeProducts(rows));
     } catch (error) {
-      console.warn("[products] using local fallback:", error);
-      setProducts(fallbackProducts);
+      // Keep the last successful catalog (or seed fallback) — do not wipe
+      // persisted values just because a refresh failed.
+      console.warn("[products] refresh failed, keeping current catalog:", error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [reload]);
 
   const value = useMemo<ProductCatalogValue>(
     () => ({
@@ -63,7 +65,7 @@ export function ProductProvider({ children }: { children: ReactNode }) {
       reload,
       isLoading,
     }),
-    [products, isLoading],
+    [products, isLoading, reload],
   );
 
   return (
