@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { apiGet, apiPut } from "../../lib/api";
+import { useEffect, useState, type FormEvent } from "react";
+import { apiDelete, apiGet, apiPut } from "../../lib/api";
 import type { ComparePara, Product } from "../../types/product";
 import { products as fallbackProducts } from "../../data/products";
 import { useSiteSettings, type SiteSettings } from "../../lib/siteSettings";
@@ -173,18 +173,15 @@ function buildCompareParas(draft: Draft): ComparePara[] {
   ].filter((p) => p.strong || p.rest.trim());
 }
 
-function mergeCatalog(remote: Product[], fallback: Product[]): Product[] {
+function mergeCatalog(remote: Product[]): Product[] {
   const byId = new Map<string, Product>();
-  for (const product of fallback) {
-    byId.set(product.id, product);
-  }
   for (const row of remote) {
     if (!row?.id) continue;
     byId.set(
       row.id,
       mergeProduct(
         row,
-        fallback.find((p) => p.id === row.id) || byId.get(row.id),
+        fallbackProducts.find((p) => p.id === row.id) || byId.get(row.id),
       ),
     );
   }
@@ -211,16 +208,8 @@ export function AdminContentPanel({
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsSavingSection, setSettingsSavingSection] = useState("");
 
-  const selected = useMemo(
-    () => catalog.find((p) => p.id === selectedId) || catalog[0],
-    [catalog, selectedId],
-  );
-
   const applyCatalog = (rows: Product[], preferredId?: string) => {
-    const next = mergeCatalog(
-      Array.isArray(rows) ? rows : [],
-      fallbackProducts,
-    );
+    const next = mergeCatalog(Array.isArray(rows) ? rows : []);
     setCatalog(next);
     const id =
       (preferredId && next.some((p) => p.id === preferredId) && preferredId) ||
@@ -338,7 +327,7 @@ export function AdminContentPanel({
     );
 
   const saveProduct = async (section = "product") => {
-    if (!draft || !selected) return;
+    if (!draft) return;
     setIsSaving(true);
     setSavingSection(section);
     setError("");
@@ -363,8 +352,9 @@ export function AdminContentPanel({
         );
       }
 
+      const existing = catalog.find((product) => product.id === draft.id);
       const payload: Product = {
-        ...selected,
+        ...(existing || {}),
         id: draft.id,
         name: draft.name.trim(),
         price: Math.round(price * 100) / 100,
@@ -378,8 +368,10 @@ export function AdminContentPanel({
         compareTitle: draft.compareTitle.trim(),
         benefitsTitle: draft.benefitsTitle.trim(),
         compareParas: buildCompareParas(draft),
+        rating: existing?.rating || 0,
+        reviews: existing?.reviews || 0,
         content: {
-          ...selected.content,
+          ...(existing?.content || emptyContent()),
           gallery,
           features: draft.content.features,
           steps: draft.content.steps,
@@ -431,6 +423,64 @@ export function AdminContentPanel({
         return;
       }
       setError(message);
+    } finally {
+      setIsSaving(false);
+      setSavingSection("");
+    }
+  };
+
+  const addProduct = () => {
+    const id = `new-product-${Date.now().toString(36)}`;
+    setSelectedId(id);
+    setDraft({
+      id,
+      name: "New product",
+      price: "",
+      twoBoxPrice: "",
+      cardImage: "",
+      ritualImage: "",
+      compareImage: "",
+      resultsImage: "",
+      galleryText: "",
+      storiesTitle: "",
+      ritualTitle: "",
+      compareTitle: "",
+      benefitsTitle: "",
+      compareStrong0: "",
+      compareRest0: "",
+      compareStrong1: "",
+      compareRest1: "",
+      content: emptyContent(),
+    });
+    setError("");
+    setSavedAt("");
+    setSavedSection("");
+  };
+
+  const deleteProduct = async () => {
+    if (!draft || !catalog.some((product) => product.id === draft.id)) return;
+    if (!window.confirm(`Xóa sản phẩm “${draft.name || draft.id}”?`)) return;
+
+    setIsSaving(true);
+    setSavingSection("delete");
+    setError("");
+    try {
+      await apiDelete<{ status: string }>(
+        `/api/admin/products/${encodeURIComponent(draft.id)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const remaining = catalog.filter((product) => product.id !== draft.id);
+      applyCatalog(remaining);
+      await reloadProducts();
+      setSavedAt(new Date().toLocaleTimeString());
+      setSavedSection("xóa sản phẩm");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Không xóa được sản phẩm.";
+      if (/401|403|unauthorized|forbidden|invalid token/i.test(message)) {
+        onAuthExpired();
+      } else {
+        setError(message);
+      }
     } finally {
       setIsSaving(false);
       setSavingSection("");
@@ -585,10 +635,15 @@ export function AdminContentPanel({
   if (!draft) {
     return (
       <div className="admin-content">
-        <p className="admin-error">Không tải được sản phẩm.</p>
+        <p className="admin-note">Chưa có sản phẩm nào.</p>
+        <button type="button" className="admin-secondary" onClick={addProduct}>
+          + Thêm sản phẩm
+        </button>
       </div>
     );
   }
+
+  const isExistingProduct = catalog.some((product) => product.id === draft.id);
 
   return (
     <div className="admin-content">
@@ -627,6 +682,19 @@ export function AdminContentPanel({
         >
           Tải lại
         </button>
+        <button type="button" className="admin-secondary" onClick={addProduct}>
+          + Thêm sản phẩm
+        </button>
+        {isExistingProduct && (
+          <button
+            type="button"
+            className="admin-secondary"
+            disabled={isSaving}
+            onClick={() => void deleteProduct()}
+          >
+            {isSaving && savingSection === "delete" ? "Đang xóa…" : "Xóa sản phẩm"}
+          </button>
+        )}
       </div>
       <p className="admin-note">
         Đang quản trị {catalog.length} sản phẩm — chọn thẻ bên trên để sửa.
@@ -648,6 +716,17 @@ export function AdminContentPanel({
       <form className="admin-content-form" onSubmit={handleSave}>
         <section className="admin-content-card admin-content-card--price">
           <h2>Giá bán</h2>
+          <label>
+            Mã sản phẩm
+            <input
+              value={draft.id}
+              onChange={(e) => updateField("id", e.target.value.trim().toLowerCase())}
+              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+              title="Dùng chữ thường, số và dấu gạch ngang."
+              disabled={isExistingProduct}
+              required
+            />
+          </label>
           <label>
             Tên sản phẩm
             <input

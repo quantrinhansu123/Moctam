@@ -428,6 +428,14 @@ export async function upsertSiteProduct(id, data) {
   }
 }
 
+/**
+ * Keep a small record instead of removing it outright. This prevents a
+ * built-in default product from being seeded again on the next server start.
+ */
+export async function deleteSiteProduct(id) {
+  return upsertSiteProduct(id, { id, deleted: true });
+}
+
 export async function ensureSiteProducts(defaults = []) {
   let existing = [];
   try {

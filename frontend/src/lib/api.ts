@@ -98,6 +98,19 @@ export async function apiPut<T>(
   }, timeoutMs);
 }
 
+/** DELETE an API resource and parse its JSON response. */
+export async function apiDelete<T>(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  return apiRequest<T>(path, {
+    ...init,
+    method: "DELETE",
+    headers: { ...extraHeaders(init) },
+  }, timeoutMs);
+}
+
 async function apiRequest<T>(
   path: string,
   init: RequestInit,

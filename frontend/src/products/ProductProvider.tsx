@@ -43,15 +43,12 @@ function coerceProduct(product: Product, fallback?: Product): Product {
 
 function normalizeProducts(rows: unknown): Product[] {
   const byId = new Map<string, Product>();
-  for (const product of fallbackProducts) {
-    byId.set(product.id, coerceProduct(product));
-  }
   if (Array.isArray(rows)) {
     for (const row of rows) {
       if (!row || typeof row !== "object" || !("id" in row)) continue;
       const product = row as Product;
-      const prev = byId.get(product.id);
-      byId.set(product.id, coerceProduct(product, prev));
+      const fallback = fallbackProducts.find((item) => item.id === product.id);
+      byId.set(product.id, coerceProduct(product, fallback));
     }
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));

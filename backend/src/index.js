@@ -23,6 +23,7 @@ import {
   listFeedbacks,
   listOrders,
   deleteOrders,
+  deleteSiteProduct,
   listSiteProducts,
   markOrderStatus,
   updateOrderContact,
@@ -76,6 +77,10 @@ function mergeProductCatalog(dbRows, defaults) {
   }
   for (const row of dbRows || []) {
     if (!row?.id) continue;
+    if (row.deleted === true) {
+      byId.delete(row.id);
+      continue;
+    }
     const prev = byId.get(row.id) || {};
     byId.set(row.id, {
       ...prev,
@@ -149,6 +154,10 @@ function parseAmount(value) {
 
 function trimOrEmpty(value) {
   return String(value ?? "").trim();
+}
+
+function isValidProductId(value) {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) && value.length <= 120;
 }
 
 function normalizeOrderItems(raw) {
@@ -676,7 +685,11 @@ app.get("/api/products/:id", async (req, res) => {
   if (!id) return error(res, 400, "Product id is required.");
   try {
     const row = await getSiteProduct(id);
-    if (row) return res.json(row);
+    if (row?.deleted !== true) {
+      if (row) return res.json(row);
+    } else {
+      return error(res, 404, "Product not found.");
+    }
   } catch (err) {
     console.warn("[PRODUCTS] get failed:", err.message || err);
   }
@@ -685,9 +698,29 @@ app.get("/api/products/:id", async (req, res) => {
   return error(res, 404, "Product not found.");
 });
 
+app.delete("/api/admin/products/:id", requireAdmin, async (req, res) => {
+  const id = trimOrEmpty(req.params.id);
+  if (!id) return error(res, 400, "Product id is required.");
+  if (!isValidProductId(id)) {
+    return error(res, 400, "Product id may contain lowercase letters, numbers, and hyphens only.");
+  }
+
+  try {
+    await deleteSiteProduct(id);
+    console.log(`[ADMIN] deleted product '${id}'`);
+    return res.json({ status: "success", id });
+  } catch (err) {
+    console.error("[ADMIN] delete product failed:", err.message || err);
+    return error(res, 500, "Unable to delete product.");
+  }
+});
+
 app.put("/api/admin/products/:id", requireAdmin, async (req, res) => {
   const id = trimOrEmpty(req.params.id);
   if (!id) return error(res, 400, "Product id is required.");
+  if (!isValidProductId(id)) {
+    return error(res, 400, "Product id may contain lowercase letters, numbers, and hyphens only.");
+  }
 
   const patch = req.body && typeof req.body === "object" ? req.body : null;
   if (!patch) return error(res, 400, "Product body is required.");
