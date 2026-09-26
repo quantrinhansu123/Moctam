@@ -825,7 +825,21 @@ export function AdminContentPanel({
               </span>
             </label>
           </div>
-          <SectionSave section="giá" label="Lưu giá" />
+          <div className="admin-content-actions">
+            <SectionSave section="giá" label="Lưu giá" />
+            {!isExistingProduct && (
+              <button
+                type="button"
+                className="admin-content-save"
+                disabled={isSaving}
+                onClick={() => void saveProduct("sản phẩm mới")}
+              >
+                {isSaving && savingSection === "sản phẩm mới"
+                  ? "Đang tạo…"
+                  : "Tạo sản phẩm"}
+              </button>
+            )}
+          </div>
         </section>
 
         <section className="admin-content-card">
