@@ -382,7 +382,10 @@ const mamXoi: Product = {
   },
 };
 
-export const products: Product[] = [traMocTam, mamXoi];
+// Keep the original product object available as historical template data, but
+// only Mầm Xôi is part of the public catalog.
+void traMocTam;
+export const products: Product[] = [mamXoi];
 
 export const findProduct = (id: string) =>
   products.find((product) => product.id === id);

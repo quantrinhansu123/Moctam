@@ -44,7 +44,10 @@ function loadDefaultProducts() {
       "utf8",
     );
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    // Mầm Xôi is the sole product offered on the public storefront.
+    return Array.isArray(parsed)
+      ? parsed.filter((product) => product?.id === "mam-xoi")
+      : [];
   } catch (error) {
     console.warn("[PRODUCTS] could not load defaults:", error.message || error);
     return [];
