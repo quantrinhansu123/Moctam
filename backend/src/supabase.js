@@ -187,6 +187,22 @@ export async function markOrderStatus(paypalOrderId, status) {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+/** Mark a pending payment complete exactly once and return its stored cart items. */
+export async function markOrderCompletedIfPending(paypalOrderId) {
+  const rows = await supabaseFetch(
+    `/rest/v1/orders?paypal_order_id=eq.${encodeURIComponent(paypalOrderId)}&status=eq.PENDING`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        status: "COMPLETED",
+        updated_at: new Date().toISOString(),
+      }),
+    },
+  );
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
 export async function claimEmailSend(paypalOrderId) {
   const columns =
     "paypal_order_id,customer_email,total_amount,currency,status,email_sent";

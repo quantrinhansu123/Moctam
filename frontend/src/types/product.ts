@@ -71,6 +71,8 @@ export interface Product {
   twoBoxPrice: number;
   rating: number;
   reviews: number;
+  /** Number of individual boxes available. Null means inventory is not tracked. */
+  stock?: number | null;
   /** Image shown on the shop grid and in the cart drawer. */
   cardImage: string;
   content: ProductContent;

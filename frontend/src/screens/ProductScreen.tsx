@@ -101,7 +101,14 @@ export function ProductScreen({ product, onAddToCart }: ProductScreenProps) {
   };
 
   const complete = offer === "complete";
+  const stock =
+    typeof product.stock === "number" && Number.isInteger(product.stock)
+      ? Math.max(0, product.stock)
+      : null;
+  const boxesInOffer = complete ? 2 : 1;
+  const canAddToCart = stock === null || stock >= boxesInOffer;
   const addToCart = () =>
+    canAddToCart &&
     onAddToCart({
       productId: product.id,
       name: product.name,
@@ -135,31 +142,35 @@ export function ProductScreen({ product, onAddToCart }: ProductScreenProps) {
                   </div>
                 ))}
               </div>
-              <button
-                className="gallery-arrow gallery-prev"
-                type="button"
-                aria-label="Slide left"
-                onClick={() => goGallery(galleryIndex - 1)}
-                dangerouslySetInnerHTML={{ __html: icon("galleryArrow") }}
-              />
-              <button
-                className="gallery-arrow gallery-next"
-                type="button"
-                aria-label="Slide right"
-                onClick={() => goGallery(galleryIndex + 1)}
-                dangerouslySetInnerHTML={{ __html: icon("galleryArrow") }}
-              />
-              <div className="gallery-dots" aria-label="Select gallery image">
-                {content.gallery.map((_, index) => (
+              {content.gallery.length > 1 && (
+                <>
                   <button
-                    key={index}
+                    className="gallery-arrow gallery-prev"
                     type="button"
-                    className={index === galleryIndex ? "active" : ""}
-                    aria-label={`Load slide ${index + 1}`}
-                    onClick={() => goGallery(index)}
+                    aria-label="Slide left"
+                    onClick={() => goGallery(galleryIndex - 1)}
+                    dangerouslySetInnerHTML={{ __html: icon("galleryArrow") }}
                   />
-                ))}
-              </div>
+                  <button
+                    className="gallery-arrow gallery-next"
+                    type="button"
+                    aria-label="Slide right"
+                    onClick={() => goGallery(galleryIndex + 1)}
+                    dangerouslySetInnerHTML={{ __html: icon("galleryArrow") }}
+                  />
+                  <div className="gallery-dots" aria-label="Select gallery image">
+                    {content.gallery.map((_, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        className={index === galleryIndex ? "active" : ""}
+                        aria-label={`Load slide ${index + 1}`}
+                        onClick={() => goGallery(index)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             <div className="thumbnail-row">
               <button
@@ -270,8 +281,8 @@ export function ProductScreen({ product, onAddToCart }: ProductScreenProps) {
             </div>
 
             <div className="product-actions">
-              <button className="add-to-cart" type="button" onClick={addToCart}>
-                ADD TO CART
+              <button className="add-to-cart" type="button" onClick={addToCart} disabled={!canAddToCart}>
+                {stock === 0 ? "SOLD OUT" : "ADD TO CART"}
               </button>
               <div className="viewing">
                 <span className="live-dot"></span>
@@ -295,46 +306,51 @@ export function ProductScreen({ product, onAddToCart }: ProductScreenProps) {
                   <strong>UPDATE:</strong>
                 </p>
                 <p>
-                  <strong>We're currently going viral on social media</strong> and have
-                  very limited stock remaining!
+                  {stock === null ? (
+                    <>In stock and ready to ship.</>
+                  ) : stock === 0 ? (
+                    <strong>This product is currently sold out.</strong>
+                  ) : (
+                    <><strong>{stock} box{stock === 1 ? "" : "es"} remaining.</strong> Stock updates after successful payment.</>
+                  )}
                 </p>
-                <p>
-                  <strong>Get yours now</strong> before we sell out again!
-                </p>
+                {stock !== null && stock > 0 && <p><strong>Get yours now</strong> before we sell out!</p>}
               </div>
 
-              <div
-                className="mini-reviews"
-                id="mini-reviews"
-                onPointerDown={trackStart}
-                onPointerUp={miniUp}
-              >
-                <div className="mini-review">
-                  <img src={mini.image} alt="" />
-                  <div className="mini-review-copy">
-                    {mini.quote}
-                    <br />
-                    <strong>
-                      {mini.name}.{" "}
-                      <span
-                        className="stars"
-                        dangerouslySetInnerHTML={{ __html: starIcons(5) }}
+              {mini && (
+                <div
+                  className="mini-reviews"
+                  id="mini-reviews"
+                  onPointerDown={trackStart}
+                  onPointerUp={miniUp}
+                >
+                  <div className="mini-review">
+                    <img src={mini.image} alt="" />
+                    <div className="mini-review-copy">
+                      {mini.quote}
+                      <br />
+                      <strong>
+                        {mini.name}.{" "}
+                        <span
+                          className="stars"
+                          dangerouslySetInnerHTML={{ __html: starIcons(5) }}
+                        />
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="mini-review-dots">
+                    {content.miniReviews.map((_, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        className={index === miniIndex ? "active" : ""}
+                        aria-label={`Go to review ${index + 1}`}
+                        onClick={() => setMiniIndex(index)}
                       />
-                    </strong>
+                    ))}
                   </div>
                 </div>
-                <div className="mini-review-dots">
-                  {content.miniReviews.map((_, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className={index === miniIndex ? "active" : ""}
-                      aria-label={`Go to review ${index + 1}`}
-                      onClick={() => setMiniIndex(index)}
-                    />
-                  ))}
-                </div>
-              </div>
+              )}
 
               <div className="product-accordions" id="product-accordions">
                 {content.accordions.map((item) => (

@@ -26,6 +26,7 @@ import {
   deleteSiteProduct,
   listSiteProducts,
   markOrderStatus,
+  markOrderCompletedIfPending,
   updateOrderContact,
   updateOrderItems,
   upsertSiteProduct,
@@ -182,12 +183,51 @@ function normalizeOrderItems(raw) {
     .slice(0, 50);
 }
 
+function boxesInOrderItem(item) {
+  return Math.max(1, Number(item?.qty) || 1) *
+    (/2\s*box/i.test(String(item?.tag || "")) ? 2 : 1);
+}
+
+function stockNeededByProduct(items) {
+  const needed = new Map();
+  for (const item of items || []) {
+    const id = trimOrEmpty(item?.product_id || item?.productId);
+    if (!id) continue;
+    needed.set(id, (needed.get(id) || 0) + boxesInOrderItem(item));
+  }
+  return needed;
+}
+
+async function assertStockAvailable(items) {
+  for (const [id, boxes] of stockNeededByProduct(items)) {
+    const product = await getSiteProduct(id);
+    if (!product || product.deleted === true) {
+      throw new Error(`Product '${id}' is no longer available.`);
+    }
+    if (typeof product.stock === "number" && product.stock < boxes) {
+      throw new Error(`Only ${product.stock} box(es) of '${product.name || id}' remain.`);
+    }
+  }
+}
+
+async function decrementProductStock(items) {
+  for (const [id, boxes] of stockNeededByProduct(items)) {
+    const product = await getSiteProduct(id);
+    if (!product || typeof product.stock !== "number") continue;
+    if (product.stock < boxes) {
+      throw new Error(`Stock changed before payment completed for '${product.name || id}'.`);
+    }
+    await upsertSiteProduct(id, { ...product, stock: product.stock - boxes });
+  }
+}
+
 async function completeOrderAndQueueEmail(paypalOrderId, source) {
+  let completedOrder = null;
   try {
-    const updated = await markOrderStatus(paypalOrderId, "COMPLETED");
-    if (!updated) {
+    completedOrder = await markOrderCompletedIfPending(paypalOrderId);
+    if (!completedOrder) {
       console.log(
-        `[ORDERS] (${source}) no order record found for ${paypalOrderId}`,
+        `[ORDERS] (${source}) ${paypalOrderId} was already completed or no order record was found`,
       );
     } else {
       console.log(`[ORDERS] (${source}) ${paypalOrderId} → COMPLETED`);
@@ -197,6 +237,14 @@ async function completeOrderAndQueueEmail(paypalOrderId, source) {
       `[ORDERS] (${source}) failed to mark ${paypalOrderId} COMPLETED:`,
       error.message || error,
     );
+  }
+
+  if (completedOrder?.items) {
+    try {
+      await decrementProductStock(completedOrder.items);
+    } catch (error) {
+      console.error(`[STOCK] (${source}) could not decrement stock for ${paypalOrderId}:`, error.message || error);
+    }
   }
 
   try {
@@ -389,9 +437,10 @@ app.post("/api/orders/paypal/create", async (req, res) => {
       return error(res, 400, "currency must be a 3-letter ISO-4217 code.");
     }
 
+    const items = normalizeOrderItems(req.body?.items);
+    await assertStockAvailable(items);
     console.log(`Initiating PayPal checkout: ${amount.toFixed(2)} ${currency}`);
     const order = await createPaypalOrder(amount, currency);
-    const items = normalizeOrderItems(req.body?.items);
 
     if (email) {
       try {
@@ -426,6 +475,10 @@ app.post("/api/orders/paypal/create", async (req, res) => {
     });
   } catch (err) {
     console.error("PayPal Create Error:", err.message || err);
+    const message = String(err.message || err);
+    if (/^(Only \d+ box\(es\)|Product '.+' is no longer available)/.test(message)) {
+      return error(res, 409, message);
+    }
     return error(res, 500, "Failed to communicate with PayPal");
   }
 });
@@ -771,6 +824,15 @@ app.put("/api/admin/products/:id", requireAdmin, async (req, res) => {
     }
     next.price = Math.round(price * 100) / 100;
     next.twoBoxPrice = Math.round(twoBoxPrice * 100) / 100;
+    if (next.stock === undefined || next.stock === null || next.stock === "") {
+      next.stock = null;
+    } else {
+      const stock = Number(next.stock);
+      if (!Number.isInteger(stock) || stock < 0 || stock > 1_000_000) {
+        return error(res, 400, "stock must be a whole number from 0 to 1000000.");
+      }
+      next.stock = stock;
+    }
     delete next.regularPrice;
     delete next.twoBoxRegularPrice;
     next.name = trimOrEmpty(next.name) || baseline.name || id;

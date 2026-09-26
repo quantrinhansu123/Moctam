@@ -148,7 +148,17 @@ function App() {
 
   const addLine = (line: NewCartLine) => {
     const key = `${line.productId}:${line.tag}`;
+    const product = products.find((item) => item.id === line.productId);
+    const stock = typeof product?.stock === "number" ? Math.max(0, product.stock) : null;
+    const boxesInLine = /2\s*box/i.test(line.tag) ? 2 : 1;
     setCart((current) => {
+      const boxesAlreadyInCart = current
+        .filter((item) => item.productId === line.productId)
+        .reduce((total, item) => total + item.qty * (/2\s*box/i.test(item.tag) ? 2 : 1), 0);
+      if (stock !== null && boxesAlreadyInCart + boxesInLine > stock) {
+        window.alert(`Only ${stock} box${stock === 1 ? "" : "es"} of ${line.name} remain.`);
+        return current;
+      }
       const existing = current.find((item) => item.key === key);
       if (existing) {
         return current.map((item) =>
@@ -161,11 +171,27 @@ function App() {
   };
 
   const changeQty = (key: string, delta: number) =>
-    setCart((current) =>
-      current.map((item) =>
-        item.key === key ? { ...item, qty: Math.max(1, item.qty + delta) } : item,
-      ),
-    );
+    setCart((current) => {
+      const line = current.find((item) => item.key === key);
+      if (!line || delta < 0) {
+        return current.map((item) =>
+          item.key === key ? { ...item, qty: Math.max(1, item.qty + delta) } : item,
+        );
+      }
+      const product = products.find((item) => item.id === line.productId);
+      const stock = typeof product?.stock === "number" ? Math.max(0, product.stock) : null;
+      const boxesPerLine = /2\s*box/i.test(line.tag) ? 2 : 1;
+      const boxesAlreadyInCart = current
+        .filter((item) => item.productId === line.productId)
+        .reduce((total, item) => total + item.qty * (/2\s*box/i.test(item.tag) ? 2 : 1), 0);
+      if (stock !== null && boxesAlreadyInCart + boxesPerLine > stock) {
+        window.alert(`Only ${stock} box${stock === 1 ? "" : "es"} of ${line.name} remain.`);
+        return current;
+      }
+      return current.map((item) =>
+        item.key === key ? { ...item, qty: item.qty + 1 } : item,
+      );
+    });
 
   const removeLine = (key: string) =>
     setCart((current) => current.filter((item) => item.key !== key));

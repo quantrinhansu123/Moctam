@@ -15,6 +15,7 @@ type Draft = {
   name: string;
   price: string;
   twoBoxPrice: string;
+  stock: string;
   cardImage: string;
   ritualImage: string;
   compareImage: string;
@@ -59,6 +60,19 @@ function formatMoneyInput(value: number | string | null | undefined): string {
     typeof value === "number" ? value : parseMoney(String(value ?? ""));
   if (!Number.isFinite(amount) || amount <= 0) return "";
   return (Math.round(amount * 100) / 100).toFixed(2);
+}
+
+function formatStockInput(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? String(value)
+    : "";
+}
+
+function parseStock(raw: string): number | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  if (!/^\d+$/.test(value)) return NaN;
+  return Number(value);
 }
 
 function moneyPreview(value: string) {
@@ -149,6 +163,7 @@ function toDraft(product: Product): Draft {
     name: merged.name || "",
     price: formatMoneyInput(merged.price),
     twoBoxPrice: formatMoneyInput(merged.twoBoxPrice),
+    stock: formatStockInput(merged.stock),
     cardImage: merged.cardImage || "",
     ritualImage: merged.ritualImage || "",
     compareImage: merged.compareImage || "",
@@ -341,6 +356,7 @@ export function AdminContentPanel({
 
       const price = parseMoney(draft.price);
       const twoBoxPrice = parseMoney(draft.twoBoxPrice);
+      const stock = parseStock(draft.stock);
       if (!(price > 0)) {
         throw new Error(
           "Giá 1 hộp không hợp lệ — dùng dấu chấm hoặc phẩy (vd 9.96).",
@@ -351,6 +367,9 @@ export function AdminContentPanel({
           "Giá 2 hộp không hợp lệ — dùng dấu chấm hoặc phẩy (vd 19.90).",
         );
       }
+      if (stock !== null && (!Number.isInteger(stock) || stock < 0 || stock > 1_000_000)) {
+        throw new Error("Số lượng tồn kho phải là số nguyên từ 0 đến 1,000,000.");
+      }
 
       const existing = catalog.find((product) => product.id === draft.id);
       const payload: Product = {
@@ -359,6 +378,7 @@ export function AdminContentPanel({
         name: draft.name.trim(),
         price: Math.round(price * 100) / 100,
         twoBoxPrice: Math.round(twoBoxPrice * 100) / 100,
+        stock,
         cardImage: draft.cardImage.trim(),
         ritualImage: draft.ritualImage.trim(),
         compareImage: draft.compareImage.trim(),
@@ -437,6 +457,7 @@ export function AdminContentPanel({
       name: "New product",
       price: "",
       twoBoxPrice: "",
+      stock: "",
       cardImage: "",
       ritualImage: "",
       compareImage: "",
@@ -786,6 +807,21 @@ export function AdminContentPanel({
               />
               <span className="admin-price-preview is-sale">
                 {moneyPreview(draft.twoBoxPrice)}
+              </span>
+            </label>
+            <label>
+              Số hộp còn lại
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputMode="numeric"
+                placeholder="Để trống = không giới hạn"
+                value={draft.stock}
+                onChange={(e) => updateField("stock", e.target.value)}
+              />
+              <span className="admin-price-preview">
+                {draft.stock.trim() === "" ? "Không giới hạn" : `${draft.stock} hộp`}
               </span>
             </label>
           </div>
