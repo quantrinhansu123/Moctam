@@ -44,7 +44,14 @@ interface CartDrawerProps {
   onClear: () => void;
 }
 
-export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: CartDrawerProps) {
+export function CartDrawer({
+  open,
+  lines,
+  onClose,
+  onQty,
+  onRemove,
+  onClear,
+}: CartDrawerProps) {
   const [showCheckout, setShowCheckout] = useState(false);
   const [form, setForm] = useState<CheckoutForm>(EMPTY_FORM);
   const [touched, setTouched] = useState(false);
@@ -69,13 +76,19 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
   const errors = {
     email: !EMAIL_PATTERN.test(email) ? "Please enter a valid email." : "",
     name: name.length < 2 ? "Please enter your name." : "",
-    phone: !PHONE_PATTERN.test(phone) ? "Please enter a valid phone number." : "",
+    phone: !PHONE_PATTERN.test(phone)
+      ? "Please enter a valid phone number."
+      : "",
     address: address.length < 5 ? "Please enter your address." : "",
   };
-  const formValid = !errors.email && !errors.name && !errors.phone && !errors.address;
+  const formValid =
+    !errors.email && !errors.name && !errors.phone && !errors.address;
 
   const subtotal = lines.reduce((sum, line) => sum + line.price * line.qty, 0);
-  const savings = lines.reduce((sum, line) => sum + (line.regular - line.price) * line.qty, 0);
+  const savings = lines.reduce(
+    (sum, line) => sum + (line.regular - line.price) * line.qty,
+    0,
+  );
   const count = lines.reduce((sum, line) => sum + line.qty, 0);
 
   const updateField = (field: keyof CheckoutForm, value: string) => {
@@ -177,14 +190,18 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
         </div>
 
         <div className="cart-items" id="cart-items">
-          {lines.length === 0 && <p className="cart-empty">Your cart is empty.</p>}
+          {lines.length === 0 && (
+            <p className="cart-empty">Your cart is empty.</p>
+          )}
           {lines.map((line) => (
             <div className="cart-item" key={line.key}>
               <img src={line.image} alt="" />
               <div className="cart-item-copy">
                 <h3>{line.name}</h3>
                 <div className="cart-item-prices">
-                  {line.regular > line.price && <del>{money(line.regular)}</del>}
+                  {line.regular > line.price && (
+                    <del>{money(line.regular)}</del>
+                  )}
                   <strong>{money(line.price)}</strong>
                   <span className="cart-tag">{line.tag}</span>
                 </div>
@@ -238,7 +255,9 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
         <div className="cart-summary">
           <p>
             <strong>Savings</strong>
-            <strong className="cart-savings">{savings ? `-${money(savings)}` : money(0)}</strong>
+            <strong className="cart-savings">
+              {savings ? `-${money(savings)}` : money(0)}
+            </strong>
           </p>
           <p>
             <strong>Subtotal</strong>
@@ -327,7 +346,9 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                   placeholder="Street, district, city"
                   rows={3}
                   value={form.address}
-                  onChange={(event) => updateField("address", event.target.value)}
+                  onChange={(event) =>
+                    updateField("address", event.target.value)
+                  }
                   aria-invalid={touched && !!errors.address}
                   required
                 />
@@ -358,33 +379,36 @@ export function CartDrawer({ open, lines, onClose, onQty, onRemove, onClear }: C
                 )}
               </form>
 
-              {orderReady && formValid && paypalOrderId && !SKIP_PAYPAL_CHECKOUT && (
-                <>
-                  <p className="checkout-email-note">
-                    Order saved. Complete payment with PayPal below.
-                  </p>
-                  <PayPalCheckoutButton
-                    email={email}
-                    name={name}
-                    phone={phone}
-                    address={address}
-                    paypalOrderId={paypalOrderId}
-                    amount={Number(subtotal.toFixed(2))}
-                    currency="USD"
-                    onSuccess={() => {
-                      alert(
-                        "Payment successful! A confirmation email is on its way.",
-                      );
-                      onClear();
-                      resetCheckout();
-                      onClose();
-                    }}
-                    onError={() => {
-                      alert("Payment failed, please try again later.");
-                    }}
-                  />
-                </>
-              )}
+              {orderReady &&
+                formValid &&
+                paypalOrderId &&
+                !SKIP_PAYPAL_CHECKOUT && (
+                  <>
+                    <p className="checkout-email-note">
+                      Order saved. Complete payment with PayPal below.
+                    </p>
+                    <PayPalCheckoutButton
+                      email={email}
+                      name={name}
+                      phone={phone}
+                      address={address}
+                      paypalOrderId={paypalOrderId}
+                      amount={Number(subtotal.toFixed(2))}
+                      currency="USD"
+                      onSuccess={() => {
+                        alert(
+                          "Payment successful! A confirmation email is on its way.",
+                        );
+                        onClear();
+                        resetCheckout();
+                        onClose();
+                      }}
+                      onError={() => {
+                        alert("Payment failed, please try again later.");
+                      }}
+                    />
+                  </>
+                )}
             </div>
           ) : null}
           <div className="cart-payments">

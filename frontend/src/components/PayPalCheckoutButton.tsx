@@ -2,7 +2,7 @@ import { PayPalButtons } from "@paypal/react-paypal-js";
 import { apiPost, wakeApi } from "../lib/api";
 
 /** Temporary: skip PayPal Live (account restricted) and only persist order data. */
-export const SKIP_PAYPAL_CHECKOUT = true;
+export const SKIP_PAYPAL_CHECKOUT = false;
 
 export interface CheckoutCustomer {
   email: string;
@@ -100,9 +100,7 @@ export async function saveManualOrder(
         : "orders";
       return { orderId: orderData.order_id, via };
     }
-    throw new Error(
-      orderData ? JSON.stringify(orderData) : "Missing order_id",
-    );
+    throw new Error(orderData ? JSON.stringify(orderData) : "Missing order_id");
   } catch (error) {
     console.warn(
       "orders insert failed — falling back to feedbacks table",
@@ -171,11 +169,13 @@ export function PayPalCheckoutButton({
           if (paypalOrderId) {
             return paypalOrderId;
           }
-          return (await createCheckoutOrder(
-            { email, name, phone, address },
-            amount,
-            currency,
-          )).orderId;
+          return (
+            await createCheckoutOrder(
+              { email, name, phone, address },
+              amount,
+              currency,
+            )
+          ).orderId;
         } catch (error) {
           console.error("Error creating PayPal order:", error);
           onError?.(error);
