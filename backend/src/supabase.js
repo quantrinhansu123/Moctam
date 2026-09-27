@@ -444,12 +444,16 @@ export async function upsertSiteProduct(id, data) {
   }
 }
 
-/**
- * Keep a small record instead of removing it outright. This prevents a
- * built-in default product from being seeded again on the next server start.
- */
+/** Permanently remove a product row from the CMS catalog. */
 export async function deleteSiteProduct(id) {
-  return upsertSiteProduct(id, { id, deleted: true });
+  const rows = await supabaseFetch(
+    `/rest/v1/site_products?id=eq.${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: { Prefer: "return=representation" },
+    },
+  );
+  return Array.isArray(rows) ? rows[0] || null : rows || null;
 }
 
 export async function ensureSiteProducts(defaults = []) {
