@@ -1,8 +1,7 @@
 import { PayPalButtons } from "@paypal/react-paypal-js";
 import { apiPost, wakeApi } from "../lib/api";
 
-/** PayPal Live is restricted; save customer orders without starting checkout. */
-export const SKIP_PAYPAL_CHECKOUT = true;
+export const SKIP_PAYPAL_CHECKOUT = false;
 
 export interface CheckoutCustomer {
   email: string;
