@@ -4,19 +4,38 @@
 // =============================================================
 
 const PRODUCTION_API_URL = "https://moctam.onrender.com";
+const DEVELOPMENT_API_URL = "http://127.0.0.1:8080";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-const rawBaseUrl = import.meta.env.VITE_API_URL;
+const configuredBaseUrl = import.meta.env.VITE_API_URL?.trim();
+const isProductionBuild = !import.meta.env.DEV;
+let configuredUrlIsLoopback = false;
+if (configuredBaseUrl) {
+  try {
+    configuredUrlIsLoopback = ["localhost", "127.0.0.1", "::1"].includes(
+      new URL(configuredBaseUrl).hostname,
+    );
+  } catch {
+    // Leave malformed values to the existing request error handling.
+  }
+}
+const rawBaseUrl =
+  configuredBaseUrl && !(isProductionBuild && configuredUrlIsLoopback)
+    ? configuredBaseUrl
+    : undefined;
 
 if (!rawBaseUrl) {
   console.warn(
-    `VITE_API_URL is not set — falling back to ${PRODUCTION_API_URL}`,
+    `VITE_API_URL is missing or unsuitable for this build — falling back to ${
+      import.meta.env.DEV ? DEVELOPMENT_API_URL : PRODUCTION_API_URL
+    }`,
   );
 }
 
 /** Base URL of the backend, without a trailing slash. */
 export const API_BASE_URL = (
-  rawBaseUrl || PRODUCTION_API_URL
+  rawBaseUrl ||
+  (import.meta.env.DEV ? DEVELOPMENT_API_URL : PRODUCTION_API_URL)
 ).replace(/\/+$/, "");
 
 /** Build a full URL for a backend path, e.g. apiUrl("/api/feedback"). */

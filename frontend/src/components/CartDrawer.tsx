@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { money } from "../lib/format";
 import { icon, payment } from "../lib/icons";
 import type { CartLine } from "../types/product";
@@ -59,6 +59,7 @@ export function CartDrawer({
   const [paypalOrderId, setPaypalOrderId] = useState("");
   const [isOrdering, setIsOrdering] = useState(false);
   const [orderError, setOrderError] = useState("");
+  const paymentRef = useRef<HTMLDivElement>(null);
 
   // Whenever the bag contents change (e.g. ADD TO CART), stay on cart view — not the form.
   useEffect(() => {
@@ -67,6 +68,12 @@ export function CartDrawer({
     setPaypalOrderId("");
     setOrderError("");
   }, [lines]);
+
+  useEffect(() => {
+    if (orderReady && !SKIP_PAYPAL_CHECKOUT) {
+      paymentRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [orderReady]);
 
   const email = form.email.trim();
   const name = form.name.trim();
@@ -383,7 +390,7 @@ export function CartDrawer({
                 formValid &&
                 paypalOrderId &&
                 !SKIP_PAYPAL_CHECKOUT && (
-                  <>
+                  <div className="checkout-payment" ref={paymentRef}>
                     <p className="checkout-email-note">
                       Order saved. Complete payment with PayPal below.
                     </p>
@@ -407,7 +414,7 @@ export function CartDrawer({
                         alert("Payment failed, please try again later.");
                       }}
                     />
-                  </>
+                  </div>
                 )}
             </div>
           ) : null}
